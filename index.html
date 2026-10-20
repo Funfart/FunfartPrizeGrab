@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#101326" />
+  <title>Funfart Arcade — Prize RNG</title>
+
+  <!-- ethers v5 is used to match this single-file frontend's contract integration. -->
+  <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+
+  <style>
+    :root {
+      --bg: #101326;
+      --panel: rgba(20, 24, 48, .94);
+      --panel2: #1b2140;
+      --text: #f7f8ff;
+      --muted: #b8bfdc;
+      --accent: #8b5cf6;
+      --accent2: #22d3ee;
+      --good: #34d399;
+      --bad: #fb7185;
+      --border: rgba(255,255,255,.15);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; padding: 20px;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color: var(--text); text-align: center;
+      background:
+        radial-gradient(circle at 15% 10%, rgba(139,92,246,.28), transparent 32%),
+        radial-gradient(circle at 85% 75%, rgba(34,211,238,.18), transparent 30%),
+        #101326 url('MBTI_NFT_BG+-01.png') no-repeat center center fixed;
+      background-size: cover;
+    }
+    .container {
+      width: 100%; max-width: 760px; margin: 18px auto; padding: 24px;
+      border: 1px solid var(--border); border-radius: 20px;
+      background: var(--panel); box-shadow: 0 18px 60px rgba(0,0,0,.32);
+      backdrop-filter: blur(10px);
+    }
+    #start-screen { position: relative; cursor: pointer; padding: 0; overflow: hidden; }
+    #start-bg { display: block; width: 100%; max-height: 360px; object-fit: cover; }
+    .start-text {
+      position: absolute; inset: 0; display: grid; place-items: center;
+      font-size: clamp(1.8rem, 6vw, 3rem); font-weight: 900; letter-spacing: .05em;
+      color: white; text-shadow: 0 3px 14px #000; background: rgba(0,0,0,.16);
+    }
+    h1 { margin: 0 0 8px; font-size: clamp(1.7rem, 5vw, 2.4rem); }
+    h2 { margin: 10px 0; }
+    p { color: var(--muted); line-height: 1.5; }
+    .eyebrow { color: var(--accent2); font-weight: 800; text-transform: uppercase; letter-spacing: .16em; font-size: .75rem; }
+    .status {
+      min-height: 24px; margin: 14px 0; color: var(--muted);
+      overflow-wrap: anywhere; font-size: .95rem;
+    }
+    .status.error { color: var(--bad); }
+    .status.success { color: var(--good); }
+    .btn {
+      border: 0; border-radius: 12px; padding: 12px 18px; margin: 6px;
+      background: linear-gradient(135deg, var(--accent), #6d28d9);
+      color: #fff; font-weight: 800; font-size: .98rem; cursor: pointer;
+      box-shadow: 0 6px 20px rgba(109,40,217,.22); transition: transform .15s, opacity .15s;
+    }
+    .btn:hover:not(:disabled) { transform: translateY(-1px); }
+    .btn.secondary { background: var(--panel2); border: 1px solid var(--border); box-shadow: none; }
+    .btn:disabled { opacity: .45; cursor: not-allowed; }
+    .wallet-row { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; align-items: center; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--border);
+      border-radius: 999px; padding: 7px 12px; color: var(--muted); font-size: .83rem;
+      max-width: 100%; overflow-wrap: anywhere;
+    }
+    .led { width: 8px; height: 8px; border-radius: 50%; background: #64748b; display: inline-block; }
+    .led.online { background: var(--good); box-shadow: 0 0 10px rgba(52,211,153,.7); }
+    .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 18px 0; }
+    .stat { padding: 13px 8px; border-radius: 14px; background: rgba(255,255,255,.055); border: 1px solid var(--border); }
+    .stat strong { display: block; font-size: 1.05rem; overflow-wrap: anywhere; }
+    .stat span { display: block; margin-top: 4px; color: var(--muted); font-size: .78rem; }
+    .machine {
+      position: relative; min-height: 220px; margin: 18px 0; padding: 20px 12px;
+      border-radius: 18px; border: 1px solid rgba(139,92,246,.55);
+      background: radial-gradient(circle, rgba(139,92,246,.18), rgba(9,12,27,.9));
+      overflow: hidden;
+    }
+    .machine:before, .machine:after {
+      content: ""; position: absolute; left: -20%; width: 140%; height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent2), transparent); opacity: .45;
+    }
+    .machine:before { top: 22%; } .machine:after { bottom: 22%; }
+    .slot-label { color: var(--accent2); font-size: .75rem; font-weight: 900; letter-spacing: .2em; }
+    #reel {
+      margin: 18px auto 8px; min-height: 54px; display: flex; justify-content: center;
+      align-items: center; gap: 10px; font-size: clamp(1.2rem, 5vw, 2rem); font-weight: 900;
+      overflow-wrap: anywhere;
+    }
+    #reel.spinning { animation: flicker .12s infinite alternate; }
+    @keyframes flicker { from { opacity: .58; transform: translateY(-1px); } to { opacity: 1; transform: translateY(1px); } }
+    .prize-image {
+      width: 190px; height: 190px; max-width: 70vw; object-fit: contain;
+      border-radius: 16px; border: 1px solid var(--border); background: rgba(0,0,0,.2);
+      margin: 14px auto; display: none;
+    }
+    .prize-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 10px; margin-top: 18px; text-align: left; }
+    .prize-card { border: 1px solid var(--border); border-radius: 14px; padding: 12px; background: rgba(255,255,255,.04); min-width: 0; }
+    .prize-card strong { display: block; margin-bottom: 5px; }
+    .prize-card small { color: var(--muted); line-height: 1.45; overflow-wrap: anywhere; }
+    .hidden { display: none !important; }
+    .small { font-size: .8rem; color: var(--muted); }
+    a { color: var(--accent2); }
+    @media (max-width: 520px) {
+      body { padding: 10px; }
+      .container { padding: 16px; border-radius: 16px; }
+      .stats { grid-template-columns: 1fr; }
+      .stat { display: flex; justify-content: space-between; align-items: center; text-align: left; }
+      .stat span { margin: 0 0 0 8px; }
+      .machine { min-height: 190px; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Preserves the supplied start artwork. Change the image URL if desired. -->
+  <div class="container" id="start-screen">
+    <img id="start-bg"
+      src="https://magenta-broad-orca-873.mypinata.cloud/ipfs/bafybeicfz5jvafr6x7lqyjxkz2xwn5y565vzmlgl46hbrqjlpdcehtmjla"
+      alt="Funfart Arcade start screen" />
+    <div class="start-text">TAP TO ENTER ARCADE</div>
+  </div>
+
+  <main class="container hidden" id="arcade">
+    <div class="eyebrow">On-chain prize terminal</div>
+    <h1>Funfart Arcade</h1>
+    <p>The reel is just the show. The smart contract chooses the prize.</p>
+
+    <div class="wallet-row">
+      <button class="btn" id="connect-injected">Connect Wallet</button>
+      <button class="btn secondary" id="connect-wc">WalletConnect</button>
+      <span class="pill"><i class="led" id="network-led"></i><span id="network-label">Not connected</span></span>
+      <span class="pill" id="wallet-label">Wallet: disconnected</span>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><strong id="price-value">—</strong><span>Mint price</span></div>
+      <div class="stat"><strong id="inventory-value">—</strong><span>Eligible prize types</span></div>
+      <div class="stat"><strong id="state-value">—</strong><span>Arcade status</span></div>
+    </div>
+
+    <div class="machine" aria-live="polite">
+      <div class="slot-label">PRIZE GENERATOR</div>
+      <div id="reel">READY WHEN YOU ARE</div>
+      <div id="reel-subtitle" class="small">Connect a wallet and load prize inventory.</div>
+    </div>
+
+    <img id="prize-image" class="prize-image" alt="Minted prize artwork" />
+    <h2 id="result-title" class="hidden"></h2>
+    <p id="result-description" class="hidden"></p>
+
+    <div>
+      <button class="btn" id="refresh-btn">Refresh Prizes</button>
+      <button class="btn" id="mint-btn" disabled>Mint Random Prize</button>
+    </div>
+    <div id="status" class="status" role="status">Set your contract address in the configuration before use.</div>
+    <p class="small">
+      Network: Base Sepolia (chain ID 84532). This page never chooses the winning token ID.
+      The confirmed <code>PrizeMinted</code> event is authoritative.
+    </p>
+
+    <h2>Available prizes</h2>
+    <div id="prize-grid" class="prize-grid"></div>
+  </main>
+
+<script>
+(() => {
+  "use strict";
+
+  // ==========================================================
+  // REQUIRED CONFIGURATION
+  // 1) Replace CONTRACT_ADDRESS with the deployed PROXY address.
+  // 2) Create a WalletConnect/Reown project ID and paste it below
+  //    if you want QR/deep-link WalletConnect support.
+  // 3) This sample targets Base Sepolia. Change chain config only
+  //    after deploying and testing the correct contract on Base.
+  // ==========================================================
+  const CONTRACT_ADDRESS = "PASTE_YOUR_UUPS_PROXY_ADDRESS_HERE";
+  const WALLETCONNECT_PROJECT_ID = "PASTE_YOUR_WALLETCONNECT_PROJECT_ID_HERE";
+
+  const CHAIN_ID = 84532;
+  const CHAIN_HEX = "0x14a34";
+  const CHAIN_NAME = "Base Sepolia";
+  const RPC_URL = "https://sepolia.base.org";
+  const EXPLORER_TX = "https://sepolia.basescan.org/tx/";
+
+  // Pinata gateway used by the original sample. Replace with your own gateway if preferred.
+  const IPFS_GATEWAY = "https://magenta-broad-orca-873.mypinata.cloud/ipfs/";
+
+  // ABI matches the FunfartArcadePrize contract generated in the previous step.
+  const CONTRACT_ABI = [
+    "function mint() external payable",
+    "function mintInfo() view returns (uint256 price, bool isPaused, uint256 availableWeightTotal, uint256 registeredPrizes)",
+    "function prizeCount() view returns (uint256)",
+    "function prizeIdAt(uint256 index) view returns (uint256)",
+    "function getPrize(uint256 tokenId) view returns (string metadataURI, uint256 maxSupply, uint256 minted, uint256 remaining, uint256 weight, bool active)",
+    "function uri(uint256 tokenId) view returns (string)",
+    "function walletMintCount(address) view returns (uint256)",
+    "event PrizeMinted(address indexed recipient, uint256 indexed tokenId, uint256 indexed mintNumber, uint256 pricePaid)"
+  ];
+
+  const $ = (id) => document.getElementById(id);
+  let provider = null;
+  let signer = null;
+  let contract = null;
+  let activeWalletProvider = null;
+  let isBusy = false;
+  let prizeCache = [];
+  let lastMintedTokenId = null;
+  let spinTimer = null;
+
+  const startScreen = $("start-screen");
+  const arcade = $("arcade");
+  const statusEl = $("status");
+  const mintButton = $("mint-btn");
+  const connectInjectedButton = $("connect-injected");
+  const connectWCButton = $("connect-wc");
+
+  function setStatus(message, kind = "") {
+    statusEl.textContent = message;
+    statusEl.className = "status" + (kind ? " " + kind : "");
+  }
+
+  function setBusy(busy) {
+    isBusy = busy;
+    mintButton.disabled = busy || !contract || $("state-value").textContent !== "Open" ||
+      !prizeCache.some(p => p.active && p.weight > 0 && p.remaining > 0);
+    connectInjectedButton.disabled = busy;
+    connectWCButton.disabled = busy;
+    $("refresh-btn").disabled = busy;
+  }
+
+  function shortAddress(address) {
+    return address ? address.slice(0, 6) + "…" + address.slice(-4) : "disconnected";
+  }
+
+  function assertConfigured() {
+    if (!window.ethers) throw new Error("ethers.js did not load. Check your connection or CDN access.");
+    if (!ethers.utils.isAddress(CONTRACT_ADDRESS)) {
+      throw new Error("Configure CONTRACT_ADDRESS with the deployed FunfartArcadePrize PROXY address.");
+    }
+    if (CONTRACT_ADDRESS.toLowerCase() === ethers.constants.AddressZero) {
+      throw new Error("CONTRACT_ADDRESS cannot be the zero address.");
+    }
+  }
+
+  async function ensureBaseSepolia(rawProvider) {
+    const chainIdHex = await rawProvider.request({ method: "eth_chainId" });
+    if (Number(chainIdHex) === CHAIN_ID) return;
+
+    try {
+      await rawProvider.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: CHAIN_HEX }]
+      });
+    } catch (switchError) {
+      if (switchError && switchError.code === 4902) {
+        await rawProvider.request({
+          method: "wallet_addEthereumChain",
+          params: [{
+            chainId: CHAIN_HEX,
+            chainName: CHAIN_NAME,
+            nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+            rpcUrls: [RPC_URL],
+            blockExplorerUrls: ["https://sepolia.basescan.org"]
+          }]
+        });
+      } else {
+        throw switchError;
+      }
+    }
+
+    const confirmed = await rawProvider.request({ method: "eth_chainId" });
+    if (Number(confirmed) !== CHAIN_ID) {
+      throw new Error("Please switch your wallet to Base Sepolia (chain ID 84532).");
+    }
+  }
+
+  async function attachWallet(rawProvider) {
+    assertConfigured();
+    await ensureBaseSepolia(rawProvider);
+
+    activeWalletProvider = rawProvider;
+    provider = new ethers.providers.Web3Provider(rawProvider, "any");
+    signer = provider.getSigner();
+    contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+
+    const address = await signer.getAddress();
+    $("wallet-label").textContent = "Wallet: " + shortAddress(address);
+    $("network-label").textContent = CHAIN_NAME;
+    $("network-led").classList.add("online");
+
+    if (rawProvider.on) {
+      rawProvider.on("accountsChanged", async (accounts) => {
+        if (!accounts || !accounts.length) {
+          disconnectUI();
+          return;
+        }
+        try {
+          provider = new ethers.providers.Web3Provider(rawProvider, "any");
+          signer = provider.getSigner();
+          contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+          $("wallet-label").textContent = "Wallet: " + shortAddress(accounts[0]);
+          await refreshArcade();
+        } catch (e) {
+          setStatus(errorMessage(e), "error");
+        }
+      });
+      rawProvider.on("chainChanged", () => window.location.reload());
+    }
+
+    await refreshArcade();
+    setStatus("Wallet connected. Prize inventory loaded from the contract.", "success");
+  }
+
+  async function connectInjected() {
+    try {
+      assertConfigured();
+      if (!window.ethereum) {
+        throw new Error("No browser wallet detected. Install MetaMask or use WalletConnect.");
+      }
+      await window.ethereum.request({ method: "eth_requestAccounts" });
+      await attachWallet(window.ethereum);
+    } catch (e) {
+      setStatus(errorMessage(e), "error");
+    }
+  }
+
+  async function connectWalletConnect() {
+    try {
+      assertConfigured();
+      if (!WALLETCONNECT_PROJECT_ID ||
+          WALLETCONNECT_PROJECT_ID === "PASTE_YOUR_WALLETCONNECT_PROJECT_ID_HERE") {
+        throw new Error("Add a WalletConnect/Reown project ID in WALLETCONNECT_PROJECT_ID first.");
+      }
+
+      setStatus("Opening WalletConnect…", "");
+      // WalletConnect Ethereum Provider v2 loaded as an ES module.
+      const module = await import("https://esm.sh/@walletconnect/ethereum-provider@2.17.0");
+      const EthereumProvider = module.default || module.EthereumProvider;
+      const wcProvider = await EthereumProvider.init({
+        projectId: WALLETCONNECT_PROJECT_ID,
+        chains: [CHAIN_ID],
+        optionalChains: [CHAIN_ID],
+        showQrModal: true,
+        rpcMap: { [CHAIN_ID]: RPC_URL },
+        methods: [
+          "eth_sendTransaction", "personal_sign", "eth_sign",
+          "eth_signTypedData", "eth_signTypedData_v4"
+        ],
+        events: ["chainChanged", "accountsChanged"],
+        metadata: {
+          name: "Funfart Arcade",
+          description: "On-chain ERC-1155 prize arcade",
+          url: window.location.origin,
+          icons: []
+        }
+      });
+      await wcProvider.connect();
+      await attachWallet(wcProvider);
+    } catch (e) {
+      setStatus(errorMessage(e), "error");
+    }
+  }
+
+  function disconnectUI() {
+    provider = null;
+    signer = null;
+    contract = null;
+    activeWalletProvider = null;
+    $("wallet-label").textContent = "Wallet: disconnected";
+    $("network-label").textContent = "Not connected";
+    $("network-led").classList.remove("online");
+    mintButton.disabled = true;
+    setStatus("Wallet disconnected. Connect again to continue.");
+  }
+
+  function ipfsToHttp(uri) {
+    if (!uri) return "";
+    if (uri.startsWith("ipfs://")) {
+      return IPFS_GATEWAY + uri.slice("ipfs://".length).replace(/^ipfs\//, "");
+    }
+    if (uri.startsWith("ar://")) return "https://arweave.net/" + uri.slice(5);
+    return uri;
+  }
+
+  async function readMetadata(metadataURI) {
+    const url = ipfsToHttp(metadataURI);
+    if (!url) return {};
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error("Metadata request failed: HTTP " + response.status);
+      return await response.json();
+    } catch (e) {
+      console.warn("Could not load prize metadata:", metadataURI, e);
+      return {};
+    }
+  }
+
+  function formatEth(wei) {
+    return ethers.utils.formatEther(wei) + " ETH";
+  }
+
+  function safeText(value, fallback) {
+    return value === undefined || value === null || value === "" ? fallback : String(value);
+  }
+
+  async function refreshArcade() {
+    if (!contract) {
+      setStatus("Connect a wallet to read live prize inventory.");
+      return;
+    }
+
+    try {
+      const info = await contract.mintInfo();
+      $("price-value").textContent = formatEth(info.price);
+      $("state-value").textContent = info.isPaused ? "Paused" : (info.availableWeightTotal.isZero() ? "Sold out" : "Open");
+
+      const count = await contract.prizeCount();
+      const newPrizes = [];
+      for (let i = 0; i < count.toNumber(); i++) {
+        const tokenId = await contract.prizeIdAt(i);
+        const p = await contract.getPrize(tokenId);
+        const metadata = await readMetadata(p.metadataURI);
+        newPrizes.push({
+          tokenId: tokenId.toString(),
+          metadataURI: p.metadataURI,
+          maxSupply: p.maxSupply,
+          minted: p.minted,
+          remaining: p.remaining,
+          weight: p.weight,
+          active: p.active,
+          name: safeText(metadata.name, "Prize #" + tokenId.toString()),
+          description: safeText(metadata.description, ""),
+          image: ipfsToHttp(metadata.image || metadata.image_url || "")
+        });
+      }
+
+      prizeCache = newPrizes;
+      $("inventory-value").textContent = newPrizes.filter(p => p.active && p.weight.gt(0) && p.remaining.gt(0)).length;
+      renderPrizeGrid();
+      mintButton.disabled = isBusy || info.isPaused || info.availableWeightTotal.isZero();
+      if (info.isPaused) setStatus("Minting is paused by the contract owner.", "error");
+      else if (info.availableWeightTotal.isZero()) setStatus("No eligible prizes remain in inventory.", "error");
+    } catch (e) {
+      setStatus("Could not read contract. Confirm proxy address, network, and ABI. " + errorMessage(e), "error");
+      throw e;
+    }
+  }
+
+  function renderPrizeGrid() {
+    const grid = $("prize-grid");
+    grid.innerHTML = "";
+    if (!prizeCache.length) {
+      grid.innerHTML = '<p class="small">No prizes have been registered yet.</p>';
+      return;
+    }
+
+    prizeCache.forEach((p) => {
+      const card = document.createElement("div");
+      card.className = "prize-card";
+      const title = document.createElement("strong");
+      title.textContent = p.name + " · #" + p.tokenId;
+      const details = document.createElement("small");
+      details.textContent =
+        "Remaining: " + p.remaining.toString() + " / " + p.maxSupply.toString() +
+        "\nWeight: " + p.weight.toString() +
+        "\nStatus: " + (p.active ? "Active" : "Disabled");
+      details.style.whiteSpace = "pre-line";
+      card.append(title, details);
+      if (p.image) {
+        const image = document.createElement("img");
+        image.src = p.image;
+        image.alt = p.name;
+        image.loading = "lazy";
+        image.style.cssText = "display:block;width:100%;aspect-ratio:1;object-fit:contain;border-radius:8px;margin-bottom:8px;background:rgba(0,0,0,.2)";
+        image.onerror = () => image.remove();
+        card.prepend(image);
+      }
+      grid.appendChild(card);
+    });
+  }
+
+  function eligiblePrizeLabels() {
+    const eligible = prizeCache.filter(p => p.active && p.weight.gt(0) && p.remaining.gt(0));
+    return eligible.length ? eligible : [{ tokenId: "?", name: "SCANNING INVENTORY" }];
+  }
+
+  function startSpin() {
+    $("prize-image").style.display = "none";
+    $("result-title").classList.add("hidden");
+    $("result-description").classList.add("hidden");
+    $("reel").classList.add("spinning");
+    $("reel-subtitle").textContent = "Transaction pending — waiting for the contract's confirmed result.";
+    let index = 0;
+    const labels = eligiblePrizeLabels();
+    $("reel").textContent = labels[0].name;
+    spinTimer = window.setInterval(() => {
+      const currentLabels = eligiblePrizeLabels();
+      if (currentLabels.length) {
+        index = (index + 1) % currentLabels.length;
+        $("reel").textContent = currentLabels[index].name + "  #" + currentLabels[index].tokenId;
+      }
+    }, 100);
+  }
+
+  function stopSpin() {
+    if (spinTimer) window.clearInterval(spinTimer);
+    spinTimer = null;
+    $("reel").classList.remove("spinning");
+  }
+
+  async function mintRandomPrize() {
+    if (isBusy) return;
+    if (!contract || !signer) {
+      setStatus("Connect your wallet before minting.", "error");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const info = await contract.mintInfo();
+      if (info.isPaused) throw new Error("Minting is paused.");
+      if (info.availableWeightTotal.isZero()) throw new Error("No eligible prizes remain.");
+      const price = info.price;
+
+      startSpin();
+      setStatus("Confirm the mint transaction in your wallet…");
+
+      // No token ID is passed. The contract selects the prize.
+      const tx = await contract.mint({ value: price });
+      setStatus("Transaction submitted. Waiting for confirmation: " + tx.hash);
+
+      const receipt = await tx.wait(1);
+      if (!receipt || receipt.status !== 1) throw new Error("Mint transaction failed or was reverted.");
+
+      const iface = contract.interface;
+      const connectedAddress = (await signer.getAddress()).toLowerCase();
+      let winningId = null;
+      let mintNumber = null;
+
+      for (const log of receipt.logs) {
+        if (log.address.toLowerCase() !== CONTRACT_ADDRESS.toLowerCase()) continue;
+        try {
+          const parsed = iface.parseLog(log);
+          if (parsed && parsed.name === "PrizeMinted" &&
+              parsed.args.recipient.toLowerCase() === connectedAddress) {
+            winningId = parsed.args.tokenId.toString();
+            mintNumber = parsed.args.mintNumber.toString();
+            break;
+          }
+        } catch (_) { /* not an event from this ABI */ }
+      }
+
+      if (winningId === null) {
+        throw new Error("Transaction confirmed, but PrizeMinted was not found in the proxy logs.");
+      }
+
+      lastMintedTokenId = winningId;
+      stopSpin();
+      await refreshArcade();
+
+      const winner = prizeCache.find(p => p.tokenId === winningId);
+      $("reel").textContent = (winner ? winner.name : "PRIZE") + "  #" + winningId;
+      $("reel-subtitle").textContent = "Confirmed on-chain · mint #" + mintNumber;
+      $("result-title").textContent = "YOU WON: " + (winner ? winner.name : "Prize #" + winningId);
+      $("result-title").classList.remove("hidden");
+
+      if (winner && winner.image) {
+        $("prize-image").src = winner.image;
+        $("prize-image").alt = winner.name;
+        $("prize-image").style.display = "block";
+      }
+      if (winner && winner.description) {
+        $("result-description").textContent = winner.description;
+        $("result-description").classList.remove("hidden");
+      }
+
+      setStatus("Mint confirmed! View transaction: " + tx.hash, "success");
+      const link = document.createElement("a");
+      link.href = EXPLORER_TX + tx.hash;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = "View on Base Sepolia Explorer";
+      link.style.display = "inline-block";
+      link.style.marginTop = "8px";
+      link.id = "tx-link";
+      const oldLink = document.getElementById("tx-link");
+      if (oldLink) oldLink.remove();
+      statusEl.appendChild(document.createElement("br"));
+      statusEl.appendChild(link);
+    } catch (e) {
+      stopSpin();
+      $("reel").textContent = "MINT NOT COMPLETED";
+      $("reel-subtitle").textContent = "No prize reveal unless the contract confirms a mint.";
+      setStatus(errorMessage(e), "error");
+    } finally {
+      setBusy(false);
+      try { await refreshArcade(); } catch (_) {}
+    }
+  }
+
+  function errorMessage(error) {
+    if (!error) return "Unknown error.";
+    if (error.code === 4001 || (error.error && error.error.code === 4001)) {
+      return "Wallet request was rejected.";
+    }
+    if (error.reason) return error.reason;
+    if (error.data && error.data.message) return error.data.message;
+    if (error.error && error.error.message) return error.error.message;
+    if (error.message) return error.message.replace(/^Error:\s*/, "");
+    return String(error);
+  }
+
+  startScreen.addEventListener("click", () => {
+    startScreen.classList.add("hidden");
+    arcade.classList.remove("hidden");
+  });
+  connectInjectedButton.addEventListener("click", connectInjected);
+  connectWCButton.addEventListener("click", connectWalletConnect);
+  $("refresh-btn").addEventListener("click", async () => {
+    try {
+      await refreshArcade();
+      setStatus("Prize inventory refreshed from the contract.", "success");
+    } catch (_) {}
+  });
+  mintButton.addEventListener("click", mintRandomPrize);
+
+  // Restore connection status if the wallet is already authorized.
+  window.addEventListener("load", async () => {
+    if (window.ethereum && window.ethereum.selectedAddress) {
+      try { await attachWallet(window.ethereum); } catch (_) {}
+    }
+  });
+})();
+</script>
+</body>
+</html>
