@@ -469,6 +469,7 @@
     if (metadataURI.startsWith("ipfs://")) {
       const cidPath = metadataURI.slice("ipfs://".length).replace(/^ipfs\//, "");
       urls.push(IPFS_GATEWAY + cidPath);
+      urls.push("https://ivory-urgent-mongoose-640.mypinata.cloud/ipfs/" + cidPath);
       urls.push("https://ipfs.io/ipfs/" + cidPath);
       urls.push("https://cloudflare-ipfs.com/ipfs/" + cidPath);
     } else {
