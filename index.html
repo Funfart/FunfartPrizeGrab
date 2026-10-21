@@ -78,10 +78,11 @@
     .stat strong { display: block; font-size: 1.05rem; overflow-wrap: anywhere; }
     .stat span { display: block; margin-top: 4px; color: var(--muted); font-size: .78rem; }
     .machine {
-      position: relative; min-height: 220px; margin: 18px 0; padding: 20px 12px;
-      border-radius: 18px; border: 1px solid rgba(139,92,246,.55);
-      background: radial-gradient(circle, rgba(139,92,246,.18), rgba(9,12,27,.9));
-      overflow: hidden;
+      position: relative; min-height: 500px; margin: 18px 0; padding: 24px 16px 30px;
+      border-radius: 22px; border: 1px solid rgba(139,92,246,.65);
+      background: radial-gradient(circle at 50% 38%, rgba(139,92,246,.24), rgba(9,12,27,.94) 72%);
+      overflow: hidden; isolation: isolate;
+      box-shadow: inset 0 0 34px rgba(34,211,238,.06), 0 12px 35px rgba(0,0,0,.18);
     }
     .machine:before, .machine:after {
       content: ""; position: absolute; left: -20%; width: 140%; height: 1px;
@@ -89,11 +90,39 @@
     }
     .machine:before { top: 22%; } .machine:after { bottom: 22%; }
     .arcade-stage-art {
-      display: block; width: min(250px, 72vw); height: 150px; margin: 12px auto 0;
-      object-fit: contain; border-radius: 12px; filter: drop-shadow(0 0 16px rgba(34,211,238,.16));
+      display: block; position: relative; z-index: 1;
+      width: min(520px, 88vw); height: clamp(280px, 43vw, 420px);
+      margin: 14px auto 0; object-fit: contain; border-radius: 16px;
+      filter: drop-shadow(0 0 22px rgba(34,211,238,.2));
+      transition: opacity .25s ease, filter .25s ease, transform .25s ease;
     }
     .arcade-stage-art.stage-active { animation: stagePulse .8s ease-in-out infinite alternate; }
-    @keyframes stagePulse { from { transform: scale(.985); filter: drop-shadow(0 0 8px rgba(139,92,246,.28)); } to { transform: scale(1.015); filter: drop-shadow(0 0 20px rgba(34,211,238,.42)); } }
+    @keyframes stagePulse { from { transform: scale(.985); filter: drop-shadow(0 0 12px rgba(139,92,246,.34)); } to { transform: scale(1.025); filter: drop-shadow(0 0 28px rgba(34,211,238,.5)); } }
+    .machine.reward-mode .arcade-stage-art { opacity: .16; filter: blur(2px) drop-shadow(0 0 20px rgba(34,211,238,.35)); transform: scale(.96); }
+    .reward-slot {
+      display: none; position: absolute; z-index: 4; left: 50%; top: 54%;
+      width: min(320px, 76%); min-height: 230px; padding: 13px;
+      transform: translate(-50%, -42%); align-items: center; justify-content: center;
+      flex-direction: column; gap: 8px; border-radius: 22px;
+      border: 2px solid rgba(34,211,238,.8);
+      background: linear-gradient(145deg, rgba(15,20,43,.96), rgba(34,18,70,.93));
+      box-shadow: 0 0 0 7px rgba(139,92,246,.13), 0 0 42px rgba(34,211,238,.25), inset 0 0 28px rgba(139,92,246,.18);
+    }
+    .reward-slot.visible { display: flex; }
+    .reward-slot::before { content: "NFT REWARD SLOT"; color: var(--accent2); font-size: .7rem; font-weight: 900; letter-spacing: .2em; }
+    .reward-slot::after { content: "REWARD SECURED"; color: var(--good); font-size: .7rem; font-weight: 900; letter-spacing: .16em; }
+    .prize-image {
+      display: block; width: min(240px, 62vw); height: min(240px, 62vw); max-width: 100%;
+      object-fit: contain; border-radius: 15px; border: 1px solid rgba(255,255,255,.22);
+      background: rgba(0,0,0,.25); margin: 0; opacity: 0;
+    }
+    .prize-image.reward-drop { animation: rewardDrop .78s cubic-bezier(.18,.82,.28,1.18) forwards; }
+    @keyframes rewardDrop {
+      0% { opacity: 0; transform: translateY(-150px) scale(.28) rotate(-12deg); filter: drop-shadow(0 0 0 rgba(34,211,238,0)); }
+      65% { opacity: 1; transform: translateY(8px) scale(1.06) rotate(3deg); filter: drop-shadow(0 0 24px rgba(34,211,238,.9)); }
+      82% { transform: translateY(-5px) scale(.98) rotate(-1deg); }
+      100% { opacity: 1; transform: translateY(0) scale(1) rotate(0); filter: drop-shadow(0 0 16px rgba(139,92,246,.65)); }
+    }
     #confetti-canvas { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 9999; }
     .slot-label { color: var(--accent2); font-size: .75rem; font-weight: 900; letter-spacing: .2em; }
     #reel {
@@ -103,11 +132,6 @@
     }
     #reel.spinning { animation: flicker .12s infinite alternate; }
     @keyframes flicker { from { opacity: .58; transform: translateY(-1px); } to { opacity: 1; transform: translateY(1px); } }
-    .prize-image {
-      width: 190px; height: 190px; max-width: 70vw; object-fit: contain;
-      border-radius: 16px; border: 1px solid var(--border); background: rgba(0,0,0,.2);
-      margin: 14px auto; display: none;
-    }
     .prize-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 10px; margin-top: 18px; text-align: left; }
     .prize-card { border: 1px solid var(--border); border-radius: 14px; padding: 12px; background: rgba(255,255,255,.04); min-width: 0; }
     .prize-card strong { display: block; margin-bottom: 5px; }
@@ -121,7 +145,13 @@
       .stats { grid-template-columns: 1fr; }
       .stat { display: flex; justify-content: space-between; align-items: center; text-align: left; }
       .stat span { margin: 0 0 0 8px; }
-      .machine { min-height: 190px; }
+      .machine { min-height: 390px; padding: 20px 10px 24px; }
+      .arcade-stage-art { width: min(92vw, 500px); height: clamp(250px, 72vw, 350px); }
+      .reward-slot { top: 55%; width: min(300px, 82%); min-height: 205px; }
+      .prize-image { width: min(190px, 55vw); height: min(190px, 55vw); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .arcade-stage-art.stage-active, .prize-image.reward-drop { animation-duration: .01ms; animation-iteration-count: 1; }
     }
   </style>
 </head>
@@ -158,9 +188,10 @@
       <div id="reel">READY WHEN YOU ARE</div>
       <div id="reel-subtitle" class="small">Connect a wallet and load prize inventory.</div>
       <img id="arcade-stage-art" class="arcade-stage-art" src="https://ivory-urgent-mongoose-640.mypinata.cloud/ipfs/bafybeieyxdfrqkq3bmps6uecrqkejtpgpqooqmvyk4oukkn4zpizjlnepe" alt="Funfart Arcade prize generator idle artwork" />
+      <div id="reward-slot" class="reward-slot" aria-live="polite" aria-label="Minted NFT reward slot">
+        <img id="prize-image" class="prize-image" alt="Minted prize artwork" />
+      </div>
     </div>
-
-    <img id="prize-image" class="prize-image" alt="Minted prize artwork" />
     <h2 id="result-title" class="hidden"></h2>
     <p id="result-description" class="hidden"></p>
 
@@ -181,7 +212,7 @@
     <h2>Your NFTs</h2>
     <p class="small">ERC-1155 balances for the currently connected wallet.</p>
     <div id="wallet-inventory" class="prize-grid"></div>
-    <p class="small">Contract: <a id="contract-link" href="https://sepolia.basescan.org/address/0xd373e3b1574013C29bBE9286C7968039a8bC0cA5" target="_blank" rel="noopener noreferrer">View proxy on Base Sepolia</a></p>
+    <p class="small">Contract: <a id="contract-link" href="https://sepolia.basescan.org/address/0x339F1947F6DF185Bd63C5B28A94D76dEc30537F6" target="_blank" rel="noopener noreferrer">View proxy on Base Sepolia</a></p>
   </main>
 
 <script>
@@ -640,6 +671,35 @@
     art.style.display = "block";
   }
 
+  function hideRewardSlot() {
+    const slot = $("reward-slot");
+    const image = $("prize-image");
+    const machine = document.querySelector(".machine");
+    if (slot) slot.classList.remove("visible");
+    if (machine) machine.classList.remove("reward-mode");
+    if (image) {
+      image.classList.remove("reward-drop");
+      image.style.display = "none";
+    }
+  }
+
+  function showRewardSlot(winner) {
+    const slot = $("reward-slot");
+    const image = $("prize-image");
+    const machine = document.querySelector(".machine");
+    if (!slot || !image || !machine) return;
+    // A confirmed mint gets a reward reveal even if the wallet inventory UI has not refreshed yet.
+    image.src = winner && winner.image ? winner.image : ARCADE_ART;
+    image.alt = winner ? (winner.name + " — minted NFT reward") : "Mint confirmed reward";
+    image.style.display = "block";
+    image.classList.remove("reward-drop");
+    machine.classList.add("reward-mode");
+    slot.classList.add("visible");
+    // Restart the drop-in animation on each successful mint.
+    void image.offsetWidth;
+    image.classList.add("reward-drop");
+  }
+
   let confettiFrame = null;
   function launchConfetti() {
     const canvas = $("confetti-canvas");
@@ -679,6 +739,7 @@
   }
 
   function startSpin() {
+    hideRewardSlot();
     setStageArt(ARCADE_PENDING_GIF, "Animated prize generator while waiting for wallet signature", true);
     $("prize-image").style.display = "none";
     $("result-title").classList.add("hidden");
@@ -761,11 +822,7 @@
       $("result-title").textContent = "YOU WON: " + (winner ? winner.name : "Prize #" + winningId);
       $("result-title").classList.remove("hidden");
 
-      if (winner && winner.image) {
-        $("prize-image").src = winner.image;
-        $("prize-image").alt = winner.name;
-        $("prize-image").style.display = "block";
-      }
+      showRewardSlot(winner);
       if (winner && winner.description) {
         $("result-description").textContent = winner.description;
         $("result-description").classList.remove("hidden");
@@ -788,6 +845,7 @@
       statusEl.appendChild(link);
     } catch (e) {
       stopSpin();
+      hideRewardSlot();
       setStageArt(ARCADE_ART, "Funfart Arcade idle artwork", false);
       $("reel").textContent = "MINT NOT COMPLETED";
       $("reel-subtitle").textContent = "No prize reveal unless the contract confirms a mint.";
@@ -818,8 +876,8 @@
   connectWCButton.addEventListener("click", connectWalletConnect);
   $("refresh-btn").addEventListener("click", async () => {
     if (!isBusy) {
+      hideRewardSlot();
       setStageArt(ARCADE_ART, "Funfart Arcade idle artwork", false);
-      $("prize-image").style.display = "none";
       $("result-title").classList.add("hidden");
       $("result-description").classList.add("hidden");
       $("reel").textContent = "PRIZES REFRESHED";
@@ -849,3 +907,4 @@
 </script>
 </body>
 </html>
+
