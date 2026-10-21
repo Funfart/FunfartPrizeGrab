@@ -181,7 +181,7 @@
     <h2>Your NFTs</h2>
     <p class="small">ERC-1155 balances for the currently connected wallet.</p>
     <div id="wallet-inventory" class="prize-grid"></div>
-    <p class="small">Contract: <a id="contract-link" href="https://sepolia.basescan.org/address/0x339F1947F6DF185Bd63C5B28A94D76dEc30537F6" target="_blank" rel="noopener noreferrer">View proxy on Base Sepolia</a></p>
+    <p class="small">Contract: <a id="contract-link" href="https://sepolia.basescan.org/address/0xd373e3b1574013C29bBE9286C7968039a8bC0cA5" target="_blank" rel="noopener noreferrer">View proxy on Base Sepolia</a></p>
   </main>
 
 <script>
@@ -196,8 +196,8 @@
   // 3) This sample targets Base Sepolia. Change chain config only
   //    after deploying and testing the correct contract on Base.
   // ==========================================================
-  const CONTRACT_ADDRESS = "0x339F1947F6DF185Bd63C5B28A94D76dEc30537F6";
-  const WALLETCONNECT_PROJECT_ID = "PASTE_YOUR_WALLETCONNECT_PROJECT_ID_HERE";
+  const CONTRACT_ADDRESS = "0xd373e3b1574013C29bBE9286C7968039a8bC0cA5";
+  const WALLETCONNECT_PROJECT_ID = "eb26b345632b5cdd09fd1dd2ad8f974e";
 
   const CHAIN_ID = 84532;
   const CHAIN_HEX = "0x14a34";
@@ -375,7 +375,7 @@
     try {
       assertConfigured();
       if (!WALLETCONNECT_PROJECT_ID ||
-          WALLETCONNECT_PROJECT_ID === "PASTE_YOUR_WALLETCONNECT_PROJECT_ID_HERE") {
+          WALLETCONNECT_PROJECT_ID === "eb26b345632b5cdd09fd1dd2ad8f974e") {
         throw new Error("Add a WalletConnect/Reown project ID in WALLETCONNECT_PROJECT_ID first.");
       }
 
