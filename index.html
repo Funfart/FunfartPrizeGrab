@@ -136,6 +136,14 @@
     .prize-card { border: 1px solid var(--border); border-radius: 14px; padding: 12px; background: rgba(255,255,255,.04); min-width: 0; }
     .prize-card strong { display: block; margin-bottom: 5px; }
     .prize-card small { color: var(--muted); line-height: 1.45; overflow-wrap: anywhere; }
+    .redeem-panel { margin: 24px 0; padding: 18px; text-align: left; border: 1px solid rgba(34,211,238,.45); border-radius: 18px; background: linear-gradient(145deg, rgba(34,211,238,.08), rgba(139,92,246,.12)); }
+    .redeem-panel h2, .redeem-panel p { text-align: center; }
+    .redeem-showcase { display: grid; grid-template-columns: minmax(130px, 220px) 1fr; gap: 18px; align-items: center; }
+    .redeem-showcase img { width: 100%; max-height: 240px; object-fit: contain; border-radius: 14px; background: rgba(0,0,0,.22); border: 1px solid var(--border); }
+    .redeem-form { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; margin-top: 14px; }
+    .redeem-form input { width: min(220px, 100%); padding: 12px; border-radius: 10px; border: 1px solid var(--border); background: #101326; color: var(--text); font: inherit; }
+    .redeem-note { text-align: center; min-height: 22px; }
+    @media (max-width: 520px) { .redeem-showcase { grid-template-columns: 1fr; } .redeem-showcase img { max-height: 220px; } }
     .hidden { display: none !important; }
     .small { font-size: .8rem; color: var(--muted); }
     a { color: var(--accent2); }
@@ -195,6 +203,25 @@
     <h2 id="result-title" class="hidden"></h2>
     <p id="result-description" class="hidden"></p>
 
+    <section class="redeem-panel" aria-labelledby="redeem-heading">
+      <div class="eyebrow" style="text-align:center">Ticket redemption</div>
+      <h2 id="redeem-heading">Redeem/Trade your 10 $BESTY Buck for Current Prize</h2>
+      <div class="redeem-showcase">
+        <img id="redeem-prize-image" alt="Current ticket redemption prize artwork" src="https://ivory-urgent-mongoose-640.mypinata.cloud/ipfs/bafybeieyxdfrqkq3bmps6uecrqkejtpgpqooqmvyk4oukkn4zpizjlnepe" />
+        <div>
+          <strong id="redeem-prize-name">Current Prize · #11</strong>
+          <p id="redeem-prize-description" class="small">Loading prize metadata…</p>
+          <p class="small">Redeem exactly 10 ticket points for one unit of prize token #11. Your tickets are recycled to the configured reserve wallet in the same transaction.</p>
+        </div>
+      </div>
+      <div class="redeem-form">
+        <label for="besty-ticket-id">$BESTY Buck token ID</label>
+        <input id="besty-ticket-id" type="number" min="0" step="1" inputmode="numeric" placeholder="Enter ticket token ID" aria-describedby="redeem-note" />
+        <button class="btn" id="redeem-btn" disabled>Redeem 10 $BESTY Buck</button>
+      </div>
+      <p id="redeem-note" class="small redeem-note" role="status">Connect your wallet and enter the configured $BESTY Buck token ID.</p>
+    </section>
+
     <div>
       <button class="btn" id="refresh-btn">Refresh Prizes</button>
       <button class="btn" id="mint-btn" disabled>Mint Random Prize</button>
@@ -227,7 +254,7 @@
   // 3) This sample targets Base Sepolia. Change chain config only
   //    after deploying and testing the correct contract on Base.
   // ==========================================================
-  const CONTRACT_ADDRESS = "0xd373e3b1574013C29bBE9286C7968039a8bC0cA5";
+  const CONTRACT_ADDRESS = "0x339F1947F6DF185Bd63C5B28A94D76dEc30537F6";
   const WALLETCONNECT_PROJECT_ID = "eb26b345632b5cdd09fd1dd2ad8f974e";
 
   const CHAIN_ID = 84532;
@@ -238,6 +265,11 @@
 
   // Pinata gateway used by the original sample. Replace with your own gateway if preferred.
   const IPFS_GATEWAY = "https://ivory-urgent-mongoose-640.mypinata.cloud/ipfs/";
+  // Fixed showcase/redeem target requested for this ticket trade.
+  const REDEEM_PRIZE_TOKEN_ID = "11";
+  const REDEEM_TICKET_AMOUNT = 10;
+  const REDEEM_TICKET_VALUE_REQUIRED = 1;
+  const REDEEM_PRIZE_METADATA_URI = "ipfs://bafybeiblc7vvpbjelkmv4nkeuuo4gupzotj5ey6ajibss5tgomdm5tv4du/11.json";
 
   // Arcade presentation assets (Pinata IPFS gateway URLs supplied by the owner).
   const ARCADE_ART = "https://ivory-urgent-mongoose-640.mypinata.cloud/ipfs/bafybeieyxdfrqkq3bmps6uecrqkejtpgpqooqmvyk4oukkn4zpizjlnepe";
@@ -253,6 +285,10 @@
     "function getPrize(uint256 tokenId) view returns (string metadataURI, uint256 maxSupply, uint256 minted, uint256 remaining, uint256 weight, bool active)",
     "function uri(uint256 tokenId) view returns (string)",
     "function balanceOf(address account, uint256 id) view returns (uint256)",
+    "function ticketTypes(uint256 tokenId) view returns (uint256 value, bool enabled, bool exists)",
+    "function prizeRedemptionCost(uint256 prizeTokenId) view returns (uint256)",
+    "function ticketReserve() view returns (address)",
+    "function redeem(uint256[] ticketIds, uint256[] amounts, uint256 prizeTokenId) external",
     "function walletMintCount(address) view returns (uint256)",
     "event PrizeMinted(address indexed recipient, uint256 indexed tokenId, uint256 indexed mintNumber, uint256 pricePaid)",
     "event TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)",
@@ -277,6 +313,7 @@
   const arcade = $("arcade");
   const statusEl = $("status");
   const mintButton = $("mint-btn");
+  const redeemButton = $("redeem-btn");
   const connectInjectedButton = $("connect-injected");
   const connectWCButton = $("connect-wc");
 
@@ -289,6 +326,7 @@
     isBusy = busy;
     mintButton.disabled = busy || !contract || $("state-value").textContent !== "Open" ||
       !prizeCache.some(p => p.active && p.weight > 0 && p.remaining > 0);
+    if (redeemButton) redeemButton.disabled = busy || !contract;
     connectInjectedButton.disabled = busy;
     connectWCButton.disabled = busy;
     $("refresh-btn").disabled = busy;
@@ -528,6 +566,137 @@
     return value === undefined || value === null || value === "" ? fallback : String(value);
   }
 
+  async function loadRedeemShowcaseMetadata() {
+    const imageEl = $("redeem-prize-image");
+    const nameEl = $("redeem-prize-name");
+    const descriptionEl = $("redeem-prize-description");
+    const metadata = await readMetadata(REDEEM_PRIZE_METADATA_URI);
+    nameEl.textContent = safeText(metadata.name, "Current Prize · #" + REDEEM_PRIZE_TOKEN_ID);
+    descriptionEl.textContent = safeText(metadata.description, metadata.__metadataError ? "Prize image/description metadata could not be loaded; redemption is still verified on-chain." : "Redeem 10 $BESTY Buck for this prize.");
+    const rawImage = metadata.image || metadata.image_url || metadata.animation_url || "";
+    if (rawImage) {
+      const resolved = ipfsToHttp(rawImage);
+      if (resolved) {
+        imageEl.src = resolved;
+        imageEl.onerror = () => { imageEl.onerror = null; imageEl.src = "https://ivory-urgent-mongoose-640.mypinata.cloud/ipfs/bafybeieyxdfrqkq3bmps6uecrqkejtpgpqooqmvyk4oukkn4zpizjlnepe"; };
+      }
+    } else {
+      // The supplied URI is a JSON metadata document, not necessarily an image file.
+      imageEl.src = "https://ivory-urgent-mongoose-640.mypinata.cloud/ipfs/bafybeieyxdfrqkq3bmps6uecrqkejtpgpqooqmvyk4oukkn4zpizjlnepe";
+    }
+  }
+
+  async function updateRedeemEligibility() {
+    const note = $("redeem-note");
+    const rawId = $("besty-ticket-id").value.trim();
+    redeemButton.disabled = true;
+    if (!contract || !signer) {
+      note.textContent = "Connect your wallet and enter the configured $BESTY Buck token ID.";
+      return;
+    }
+    if (!rawId || !/^\d+$/.test(rawId)) {
+      note.textContent = "Enter the on-chain token ID configured for $BESTY Buck.";
+      return;
+    }
+    try {
+      const tokenId = ethers.BigNumber.from(rawId);
+      const [ticket, redemptionCost, prize, walletAddress] = await Promise.all([
+        contract.ticketTypes(tokenId),
+        contract.prizeRedemptionCost(REDEEM_PRIZE_TOKEN_ID),
+        contract.getPrize(REDEEM_PRIZE_TOKEN_ID),
+        signer.getAddress()
+      ]);
+      const balance = await contract.balanceOf(walletAddress, tokenId);
+      const info = await contract.mintInfo();
+      if (info.isPaused) { note.textContent = "Redemptions are paused by the contract owner."; return; }
+      if (!ticket.exists || !ticket.enabled) { note.textContent = "This token ID is not an enabled ticket type."; return; }
+      if (!ticket.value.eq(REDEEM_TICKET_VALUE_REQUIRED)) { note.textContent = "This ticket is worth " + ticket.value.toString() + " point(s) each. The button is for 10 one-point $BESTY Bucks; use a ticket type worth 1 point."; return; }
+      if (!redemptionCost.eq(REDEEM_TICKET_AMOUNT)) { note.textContent = "Prize #11 is configured for " + redemptionCost.toString() + " points on-chain, not 10. The contract owner must set its redemption cost to 10."; return; }
+      if (!prize.active || prize.remaining.isZero()) { note.textContent = "Prize #11 is not active or has no remaining redeemable supply."; return; }
+      if (balance.lt(REDEEM_TICKET_AMOUNT)) { note.textContent = "Wallet balance: " + balance.toString() + "/10 $BESTY Bucks. You need 10."; return; }
+      const reserve = await contract.ticketReserve();
+      if (reserve === ethers.constants.AddressZero) { note.textContent = "Ticket reserve is not configured by the contract owner yet."; return; }
+      if (reserve.toLowerCase() === walletAddress.toLowerCase()) { note.textContent = "The connected wallet is the ticket reserve; it cannot redeem its own tickets."; return; }
+      note.textContent = "Ready: 10 one-point $BESTY Bucks available. Prize #11 costs exactly 10 points.";
+      redeemButton.disabled = isBusy;
+    } catch (e) {
+      note.textContent = "Redemption checks failed: " + errorMessage(e);
+    }
+  }
+
+  async function redeemCurrentPrize() {
+    if (isBusy) return;
+    if (!contract || !signer) { setStatus("Connect your wallet before redeeming.", "error"); return; }
+    const rawId = $("besty-ticket-id").value.trim();
+    if (!rawId || !/^\d+$/.test(rawId)) { setStatus("Enter the $BESTY Buck token ID first.", "error"); return; }
+    setBusy(true);
+    try {
+      await updateRedeemEligibility();
+      // Re-check directly before asking the wallet to sign; the contract remains authoritative.
+      const tokenId = ethers.BigNumber.from(rawId);
+      const [ticket, cost, reserve, walletAddress] = await Promise.all([
+        contract.ticketTypes(tokenId), contract.prizeRedemptionCost(REDEEM_PRIZE_TOKEN_ID), contract.ticketReserve(), signer.getAddress()
+      ]);
+      const balance = await contract.balanceOf(walletAddress, tokenId);
+      const prize = await contract.getPrize(REDEEM_PRIZE_TOKEN_ID);
+      const info = await contract.mintInfo();
+      if (info.isPaused) throw new Error("Redemptions are paused.");
+      if (!ticket.exists || !ticket.enabled || !ticket.value.eq(1)) throw new Error("Selected token ID is not an enabled one-point $BESTY Buck ticket type.");
+      if (!cost.eq(10)) throw new Error("Prize #11 must be configured for exactly 10 redemption points.");
+      if (!prize.active || prize.remaining.isZero()) throw new Error("Prize #11 has no available redeemable supply.");
+      if (balance.lt(10)) throw new Error("You need 10 $BESTY Bucks; current balance is " + balance.toString() + ".");
+      if (reserve === ethers.constants.AddressZero) throw new Error("Ticket reserve wallet has not been configured.");
+      if (reserve.toLowerCase() === walletAddress.toLowerCase()) throw new Error("The ticket reserve wallet cannot redeem its own tickets.");
+
+      hideRewardSlot();
+      setStageArt(ARCADE_PENDING_GIF, "Ticket redemption pending", true);
+      $("reel").classList.add("spinning");
+      $("reel").textContent = "REDEEMING CURRENT PRIZE";
+      $("reel-subtitle").textContent = "Burning 10 tickets and recycling them to the reserve in one atomic transaction…";
+      $("redeem-note").textContent = "Confirm the redemption transaction in your wallet.";
+      setStatus("Confirm ticket redemption in your wallet…");
+      const tx = await contract.redeem([tokenId], [REDEEM_TICKET_AMOUNT], REDEEM_PRIZE_TOKEN_ID);
+      $("reel-subtitle").textContent = "Transaction submitted · waiting for Base Sepolia confirmation…";
+      setStatus("Redemption submitted. Waiting for confirmation: " + tx.hash);
+      const receipt = await tx.wait(1);
+      if (!receipt || receipt.status !== 1) throw new Error("Redemption transaction failed or was reverted.");
+      $("reel").classList.remove("spinning");
+      await refreshArcade();
+      const winner = prizeCache.find(p => p.tokenId === REDEEM_PRIZE_TOKEN_ID);
+      const metadata = await readMetadata(REDEEM_PRIZE_METADATA_URI);
+      const reveal = {
+        name: safeText(metadata.name, winner ? winner.name : "Current Prize"),
+        description: safeText(metadata.description, winner ? winner.description : "Redeemed with 10 $BESTY Bucks."),
+        image: ipfsToHttp(metadata.image || metadata.image_url || (winner && winner.image) || "")
+      };
+      $("reel").textContent = reveal.name + "  #" + REDEEM_PRIZE_TOKEN_ID;
+      $("reel-subtitle").textContent = "Redemption confirmed on-chain · 10 $BESTY Bucks recycled to reserve.";
+      $("result-title").textContent = "REDEEMED: " + reveal.name;
+      $("result-title").classList.remove("hidden");
+      $("result-description").textContent = reveal.description;
+      $("result-description").classList.remove("hidden");
+      showRewardSlot(reveal);
+      setStageArt(ARCADE_ART, "Funfart Arcade idle artwork", false);
+      launchConfetti();
+      setStatus("Redemption confirmed! View transaction: " + tx.hash, "success");
+      const oldLink = document.getElementById("tx-link"); if (oldLink) oldLink.remove();
+      const link = document.createElement("a");
+      link.href = EXPLORER_TX + tx.hash; link.target = "_blank"; link.rel = "noopener noreferrer";
+      link.textContent = "View redemption on Base Sepolia Explorer"; link.style.display = "inline-block"; link.style.marginTop = "8px"; link.id = "tx-link";
+      statusEl.appendChild(document.createElement("br")); statusEl.appendChild(link);
+      $("redeem-note").textContent = "Success! 10 $BESTY Bucks were recycled and prize #11 was delivered to your wallet.";
+    } catch (e) {
+      $("reel").classList.remove("spinning");
+      setStageArt(ARCADE_ART, "Funfart Arcade idle artwork", false);
+      setStatus(errorMessage(e), "error");
+      $("redeem-note").textContent = "Redemption not completed. No tickets should be consumed unless the transaction confirms.";
+    } finally {
+      setBusy(false);
+      try { await refreshArcade(); } catch (_) {}
+      await updateRedeemEligibility();
+    }
+  }
+
   async function refreshArcade() {
     if (!contract) {
       setStatus("Connect a wallet to read live prize inventory.");
@@ -578,6 +747,8 @@
       renderPrizeGrid();
       renderWalletInventory();
       mintButton.disabled = isBusy || info.isPaused || info.availableWeightTotal.isZero();
+      await loadRedeemShowcaseMetadata();
+      await updateRedeemEligibility();
       if (info.isPaused) setStatus("Minting is paused by the contract owner.", "error");
       else if (info.availableWeightTotal.isZero()) setStatus("No eligible prizes remain in inventory.", "error");
     } catch (e) {
@@ -889,6 +1060,8 @@
     } catch (_) {}
   });
   mintButton.addEventListener("click", mintRandomPrize);
+  redeemButton.addEventListener("click", redeemCurrentPrize);
+  $("besty-ticket-id").addEventListener("input", () => updateRedeemEligibility().catch(() => {}));
   window.addEventListener("focus", () => {
     if (contract) refreshArcade().catch(e => setStatus("Refresh failed: " + errorMessage(e), "error"));
   });
