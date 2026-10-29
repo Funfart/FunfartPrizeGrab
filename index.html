@@ -350,13 +350,15 @@
   const RPC_URL = "https://sepolia.base.org";
   const EXPLORER_TX = "https://sepolia.basescan.org/tx/";
 
-  // Use general public IPFS gateways only; do not depend on the custom Pinata gateway.
-  // CID subdomain URLs are preferred for browser origin isolation.
-  const IPFS_GATEWAYS = [
-    "https://dweb.link/ipfs/",
-    "https://ipfs.io/ipfs/"
-  ];
-  const IPFS_SUBDOMAIN_GATEWAY = "https://dweb.link";
+  // IPFS content is retrieved and CID-verified in the browser with Helia Verified Fetch.
+  // This removes direct dependence on the account-limited Pinata gateway and avoids
+  // treating unverified gateway JSON/images as trusted content.
+  const VERIFIED_FETCH_MODULE = "https://esm.sh/@helia/verified-fetch?bundle";
+  const verifiedFetchReady = import(VERIFIED_FETCH_MODULE).then(mod => {
+    if (typeof mod.verifiedFetch !== "function") throw new Error("@helia/verified-fetch did not expose verifiedFetch().");
+    return mod.verifiedFetch;
+  });
+  const imageObjectUrls = new WeakMap();
   // Fixed showcase/redeem target requested for this ticket trade.
   const REDEEM_PRIZE_TOKEN_ID = "11";
   const REDEEM_TICKET_TOKEN_ID = "10";
@@ -638,85 +640,96 @@
         const parsed = new URL(value);
         const marker = parsed.pathname.indexOf("/ipfs/");
         if (marker >= 0) return parsed.pathname.slice(marker + 6).replace(/^\/+/, "") + parsed.search;
+        const hostMatch = parsed.hostname.match(/^([a-z2-7]+)\.ipfs\./i);
+        if (hostMatch) return hostMatch[1] + parsed.pathname + parsed.search;
       } catch (_) {}
     }
+    if (/^\/ipfs\//i.test(value)) return value.replace(/^\/ipfs\//i, "");
     return "";
+  }
+
+  function toIpfsUri(uri) {
+    const path = extractIpfsPath(uri);
+    return path ? "ipfs://" + path : String(uri || "").trim();
   }
 
   function ipfsToHttp(uri) {
     if (!uri) return "";
     const value = String(uri).trim();
-    if (!value) return "";
-    const path = extractIpfsPath(value);
-    if (path) return gatewayCandidates(value)[0] || "";
     if (/^ar:\/\//i.test(value)) return "https://arweave.net/" + value.slice(5);
-    return value;
+    return toIpfsUri(value);
   }
 
+  // IPFS candidates remain content-addressed URIs; verifiedFetch retrieves and verifies them.
   function gatewayCandidates(raw) {
-    const path = extractIpfsPath(raw);
-    if (!path) {
-      const resolved = ipfsToHttp(raw);
-      return resolved ? [resolved] : [];
-    }
-    const parts = path.split("/").filter(Boolean);
-    const cid = parts.shift();
-    const remainder = parts.join("/");
-    const candidates = [];
-    // CIDv1 base32 identifiers (the collection's bafy... CIDs) support subdomain gateways.
-    if (cid && /^b[a-z2-7]+$/i.test(cid)) {
-      candidates.push(`https://${cid}.ipfs.dweb.link/${remainder}`.replace(/\/$/, remainder ? "" : "/"));
-    }
-    const fullPath = [cid, remainder].filter(Boolean).join("/");
-    for (const gateway of IPFS_GATEWAYS) candidates.push(gateway + fullPath);
-    return [...new Set(candidates)];
+    if (!raw) return [];
+    const value = String(raw).trim();
+    const path = extractIpfsPath(value);
+    if (path) return ["ipfs://" + path];
+    const resolved = ipfsToHttp(value);
+    return resolved ? [resolved] : [];
   }
 
-  // Resolve relative image paths against the metadata document and produce
-  // gateway alternatives for both ipfs:// URIs and HTTP gateway URLs.
+  // Resolve relative image paths against their metadata document.
   function imageUrlCandidates(rawImage, metadataURI) {
     if (!rawImage) return [];
     let raw = String(rawImage).trim();
     if (!raw) return [];
     if (!/^(https?:|ipfs:|ar:|data:|blob:)/i.test(raw)) {
-      if (metadataURI && /^ipfs:\/\//i.test(metadataURI)) {
-        const base = metadataURI.replace(/^ipfs:\/\//i, "").replace(/^ipfs\//i, "");
+      if (metadataURI && extractIpfsPath(metadataURI)) {
+        const base = extractIpfsPath(metadataURI);
         const slash = base.lastIndexOf("/");
         raw = "ipfs://" + (slash >= 0 ? base.slice(0, slash + 1) : base + "/") + raw.replace(/^\.\//, "");
       } else if (metadataURI && /^https?:/i.test(metadataURI)) {
         try { raw = new URL(raw, metadataURI).href; } catch (_) {}
       }
     }
-    const candidates = gatewayCandidates(raw);
-    if (candidates.length) return candidates;
-    const resolved = ipfsToHttp(raw);
-    return resolved ? [resolved] : [];
+    return gatewayCandidates(raw);
   }
 
-  function attachImageFallback(image, candidates, fallback = ARCADE_ART) {
-    let index = 0;
-    const all = [...(candidates || []), ...gatewayCandidates(fallback)];
-    const urls = [...new Set(all.filter(Boolean))].filter(url => !failedImageUrls.has(url));
-    image.onerror = () => {
-      if (image.src) {
-        try { failedImageUrls.add(new URL(image.src).href); } catch (_) {}
-      }
-      index += 1;
-      while (index < urls.length && failedImageUrls.has(urls[index])) index += 1;
-      if (index < urls.length) {
-        image.src = urls[index];
-        return;
-      }
-      image.onerror = null;
-      image.style.display = "none";
-    };
-    if (urls.length) {
-      image.style.display = "block";
-      image.src = urls[0];
-    } else {
-      image.onerror = null;
-      image.style.display = "none";
+  async function fetchContent(uri) {
+    const value = String(uri || "").trim();
+    if (/^ipfs:\/\//i.test(value) || /^\/ipfs\//i.test(value)) {
+      const verifiedFetch = await verifiedFetchReady;
+      return verifiedFetch(value);
     }
+    if (/^ar:\/\//i.test(value)) return fetch(ipfsToHttp(value), { cache: "default" });
+    return fetch(value, { cache: "default" });
+  }
+
+  async function attachImageFallback(image, candidates, fallback = ARCADE_ART) {
+    const all = [...(candidates || []), ...gatewayCandidates(fallback)];
+    const urls = [...new Set(all.filter(Boolean))];
+    image.onerror = null;
+    for (const url of urls) {
+      try {
+        let objectUrl;
+        if (/^(ipfs:|\/ipfs\/)/i.test(url)) {
+          const response = await fetchContent(url);
+          if (!response.ok) throw new Error("Verified image fetch failed: HTTP " + response.status);
+          objectUrl = URL.createObjectURL(await response.blob());
+        } else if (/^(data:|blob:)/i.test(url)) {
+          objectUrl = url;
+        } else if (/^https?:/i.test(url)) {
+          // Preserve normal browser image loading for non-IPFS URLs (no CORS fetch needed).
+          image.style.display = "block";
+          image.onerror = () => { image.onerror = null; image.style.display = "none"; };
+          image.src = url;
+          return;
+        } else {
+          throw new Error("Unsupported image URI: " + url);
+        }
+        const previous = imageObjectUrls.get(image);
+        if (previous && previous.startsWith("blob:")) URL.revokeObjectURL(previous);
+        imageObjectUrls.set(image, objectUrl);
+        image.style.display = "block";
+        image.src = objectUrl;
+        return;
+      } catch (error) {
+        console.warn("Unable to load image candidate:", url, error);
+      }
+    }
+    image.style.display = "none";
   }
 
   async function readMetadata(metadataURI, options = {}) {
@@ -733,27 +746,21 @@
     if (metadataInflight.has(key)) return metadataInflight.get(key);
 
     const request = (async () => {
-      const urls = gatewayCandidates(key);
-      let lastError = null;
-      for (const url of [...new Set(urls)]) {
-        try {
-          const response = await fetch(url, { cache: "default" });
-          if (!response.ok) throw new Error("HTTP " + response.status + " from " + url);
-          const metadata = await response.json();
-          if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) throw new Error("Metadata response was not a JSON object from " + url);
-          metadataCache.set(key, metadata);
-          metadataRetryAfter.delete(key);
-          return metadata;
-        } catch (e) {
-          lastError = e;
-        }
+      try {
+        const response = await fetchContent(toIpfsUri(key));
+        if (!response.ok) throw new Error("Verified metadata fetch failed: HTTP " + response.status);
+        const metadata = await response.json();
+        if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) throw new Error("Metadata response was not a JSON object");
+        metadataCache.set(key, metadata);
+        metadataRetryAfter.delete(key);
+        return metadata;
+      } catch (error) {
+        const failed = { __metadataError: error && error.message ? error.message : "Metadata unavailable" };
+        metadataCache.set(key, failed);
+        metadataRetryAfter.set(key, Date.now() + 60000);
+        console.warn("Could not load verified IPFS metadata:", key, error);
+        return failed;
       }
-      const failed = { __metadataError: lastError ? lastError.message : "Metadata unavailable" };
-      // Avoid hammering gateways on each poll, but allow automatic retry after a minute.
-      metadataCache.set(key, failed);
-      metadataRetryAfter.set(key, Date.now() + 60000);
-      console.warn("Could not load prize metadata from configured IPFS gateways:", key, lastError);
-      return failed;
     })();
     metadataInflight.set(key, request);
     try { return await request; }
@@ -1531,8 +1538,7 @@
   });
   $("wallet-inventory").innerHTML = '<p class="small">Connect a wallet to view owned prizes.</p>';
 
-  // Resolve the fixed artwork through alternate gateways too; direct HTML src values
-  // otherwise remain stuck on the custom gateway when it returns HTTP 403.
+  // Resolve fixed IPFS artwork through CID-verified browser retrieval.
   window.addEventListener("load", () => {
     attachImageFallback($("start-bg"), gatewayCandidates($("start-bg").getAttribute("src")), "");
     attachImageFallback($("redeem-prize-image"), gatewayCandidates($("redeem-prize-image").getAttribute("src")), ARCADE_ART);
