@@ -326,7 +326,7 @@
       <p id="burn-note" class="small burn-note" role="status">Connect your wallet to check burn eligibility.</p>
     </section>
 
-    <p class="small">Contract: <a id="contract-link" href="https://sepolia.basescan.org/address/0x339F1947F6DF185Bd63C5B28A94D76dEc30537F6" target="_blank" rel="noopener noreferrer">View proxy on Base Sepolia</a></p>
+    <p class="small">Contract: <a id="contract-link" href="https://sepolia.basescan.org/address/0xd373e3b1574013C29bBE9286C7968039a8bC0cA5" target="_blank" rel="noopener noreferrer">View proxy on Base Sepolia</a></p>
   </main>
 
 <script>
@@ -350,8 +350,16 @@
   const RPC_URL = "https://sepolia.base.org";
   const EXPLORER_TX = "https://sepolia.basescan.org/tx/";
 
-  // Pinata gateway used by the original sample. Replace with your own gateway if preferred.
+  // Try several public gateways. The custom Pinata gateway can return 403 when its
+  // gateway access policy/authentication does not allow browser requests.
   const IPFS_GATEWAY = "https://ivory-urgent-mongoose-640.mypinata.cloud/ipfs/";
+  const IPFS_GATEWAYS = [
+    IPFS_GATEWAY,
+    "https://gateway.pinata.cloud/ipfs/",
+    "https://dweb.link/ipfs/",
+    "https://w3s.link/ipfs/",
+    "https://ipfs.io/ipfs/"
+  ];
   // Fixed showcase/redeem target requested for this ticket trade.
   const REDEEM_PRIZE_TOKEN_ID = "11";
   const REDEEM_TICKET_TOKEN_ID = "10";
@@ -398,6 +406,7 @@
   // Session-level caches prevent repeated Pinata/IPFS fetches during routine contract refreshes.
   const metadataCache = new Map();
   const metadataInflight = new Map();
+  const metadataRetryAfter = new Map();
   const failedImageUrls = new Set();
   let lastMintedTokenId = null;
   let spinTimer = null;
@@ -623,21 +632,39 @@
     }, 120000);
   }
 
+  function extractIpfsPath(uri) {
+    if (!uri) return "";
+    const value = String(uri).trim();
+    if (/^ipfs:\/\//i.test(value)) return value.replace(/^ipfs:\/\//i, "").replace(/^ipfs\//i, "").replace(/^\/+/, "");
+    if (/^https?:/i.test(value)) {
+      try {
+        const parsed = new URL(value);
+        const marker = parsed.pathname.indexOf("/ipfs/");
+        if (marker >= 0) return parsed.pathname.slice(marker + 6).replace(/^\/+/, "") + parsed.search;
+      } catch (_) {}
+    }
+    return "";
+  }
+
   function ipfsToHttp(uri) {
     if (!uri) return "";
     const value = String(uri).trim();
     if (!value) return "";
-    if (/^ipfs:\/\//i.test(value)) {
-      const path = value.replace(/^ipfs:\/\//i, "").replace(/^ipfs\//i, "").replace(/^\/+/, "");
-      return IPFS_GATEWAY + path;
-    }
+    const path = extractIpfsPath(value);
+    if (path) return IPFS_GATEWAYS[0] + path;
     if (/^ar:\/\//i.test(value)) return "https://arweave.net/" + value.slice(5);
     return value;
   }
 
-  // Build alternate image URLs because a valid IPFS CID can fail on one gateway
-  // while remaining available on another. Relative image paths are resolved
-  // against the metadata document's directory when possible.
+  function gatewayCandidates(raw) {
+    const path = extractIpfsPath(raw);
+    if (path) return [...new Set(IPFS_GATEWAYS.map(gateway => gateway + path))];
+    const resolved = ipfsToHttp(raw);
+    return resolved ? [resolved] : [];
+  }
+
+  // Resolve relative image paths against the metadata document and produce
+  // gateway alternatives for both ipfs:// URIs and HTTP gateway URLs.
   function imageUrlCandidates(rawImage, metadataURI) {
     if (!rawImage) return [];
     let raw = String(rawImage).trim();
@@ -651,86 +678,72 @@
         try { raw = new URL(raw, metadataURI).href; } catch (_) {}
       }
     }
-    let ipfsPath = "";
-    if (/^ipfs:\/\//i.test(raw)) {
-      ipfsPath = raw.replace(/^ipfs:\/\//i, "").replace(/^ipfs\//i, "").replace(/^\/+/, "");
-    } else if (/^https?:/i.test(raw)) {
-      try {
-        const parsed = new URL(raw);
-        const marker = parsed.pathname.indexOf("/ipfs/");
-        if (marker >= 0) ipfsPath = parsed.pathname.slice(marker + 6).replace(/^\/+/, "") + parsed.search;
-      } catch (_) {}
-    }
-    if (ipfsPath) {
-      // Use Pinata first, then one public fallback only if needed. Multiple
-      // retries per image can multiply gateway requests across both inventory tabs.
-      return [...new Set([
-        IPFS_GATEWAY + ipfsPath,
-        "https://ipfs.io/ipfs/" + ipfsPath
-      ])];
-    }
-    return [ipfsToHttp(raw)];
+    const candidates = gatewayCandidates(raw);
+    if (candidates.length) return candidates;
+    const resolved = ipfsToHttp(raw);
+    return resolved ? [resolved] : [];
   }
 
   function attachImageFallback(image, candidates, fallback = ARCADE_ART) {
     let index = 0;
-    const urls = [...new Set((candidates || []).filter(Boolean))].filter(url => !failedImageUrls.has(url));
+    const all = [...(candidates || []), ...gatewayCandidates(fallback)];
+    const urls = [...new Set(all.filter(Boolean))].filter(url => !failedImageUrls.has(url));
     image.onerror = () => {
       if (image.src) {
         try { failedImageUrls.add(new URL(image.src).href); } catch (_) {}
       }
       index += 1;
+      while (index < urls.length && failedImageUrls.has(urls[index])) index += 1;
       if (index < urls.length) {
         image.src = urls[index];
         return;
       }
       image.onerror = null;
-      if (fallback && image.src !== fallback) {
-        image.src = fallback;
-        image.alt = (image.alt || "NFT artwork") + " (fallback artwork)";
-      } else {
-        image.style.display = "none";
-      }
+      image.style.display = "none";
     };
-    if (urls.length) image.src = urls[0];
-    else if (fallback) image.src = fallback;
-    else image.style.display = "none";
+    if (urls.length) {
+      image.style.display = "block";
+      image.src = urls[0];
+    } else {
+      image.onerror = null;
+      image.style.display = "none";
+    }
   }
 
-  async function readMetadata(metadataURI) {
+  async function readMetadata(metadataURI, options = {}) {
     if (!metadataURI) return {};
     const key = String(metadataURI).trim();
     if (!key) return {};
-    if (metadataCache.has(key)) return metadataCache.get(key);
+    const now = Date.now();
+    if (metadataCache.has(key)) {
+      const cached = metadataCache.get(key);
+      if (!cached.__metadataError) return cached;
+      if (!options.force && now < (metadataRetryAfter.get(key) || 0)) return cached;
+      metadataCache.delete(key);
+    }
     if (metadataInflight.has(key)) return metadataInflight.get(key);
 
     const request = (async () => {
-      const urls = [];
-      if (key.startsWith("ipfs://")) {
-        const cidPath = key.slice("ipfs://".length).replace(/^ipfs\//, "");
-        urls.push(IPFS_GATEWAY + cidPath);
-        urls.push("https://ipfs.io/ipfs/" + cidPath);
-      } else {
-        urls.push(ipfsToHttp(key));
-      }
+      const urls = gatewayCandidates(key);
       let lastError = null;
       for (const url of [...new Set(urls)]) {
         try {
-          // Respect browser and gateway cache headers instead of explicitly bypassing cache.
           const response = await fetch(url, { cache: "default" });
           if (!response.ok) throw new Error("HTTP " + response.status + " from " + url);
           const metadata = await response.json();
+          if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) throw new Error("Metadata response was not a JSON object from " + url);
           metadataCache.set(key, metadata);
+          metadataRetryAfter.delete(key);
           return metadata;
         } catch (e) {
           lastError = e;
         }
       }
-      // Cache the failure for this page session too, so refresh/poll cycles don't
-      // repeatedly request a broken URI. Reload the page to retry after fixing a URI.
       const failed = { __metadataError: lastError ? lastError.message : "Metadata unavailable" };
+      // Avoid hammering gateways on each poll, but allow automatic retry after a minute.
       metadataCache.set(key, failed);
-      console.warn("Could not load prize metadata:", key, lastError);
+      metadataRetryAfter.set(key, Date.now() + 60000);
+      console.warn("Could not load prize metadata from configured IPFS gateways:", key, lastError);
       return failed;
     })();
     metadataInflight.set(key, request);
@@ -757,16 +770,11 @@
     descriptionEl.textContent = safeText(metadata.description, metadata.__metadataError ? "Prize image/description metadata could not be loaded; redemption is still verified on-chain." : "Redeem 1 $BESTY Buck (10 points) for this prize.");
     const rawImage = metadata.image || metadata.image_url || metadata.animation_url || "";
     redeemShowcaseLoaded = true;
-    if (rawImage) {
-      const resolved = ipfsToHttp(rawImage);
-      if (resolved) {
-        imageEl.src = resolved;
-        imageEl.onerror = () => { imageEl.onerror = null; imageEl.src = "https://ivory-urgent-mongoose-640.mypinata.cloud/ipfs/bafybeieyxdfrqkq3bmps6uecrqkejtpgpqooqmvyk4oukkn4zpizjlnepe"; };
-      }
-    } else {
-      // The supplied URI is a JSON metadata document, not necessarily an image file.
-      imageEl.src = "https://ivory-urgent-mongoose-640.mypinata.cloud/ipfs/bafybeieyxdfrqkq3bmps6uecrqkejtpgpqooqmvyk4oukkn4zpizjlnepe";
-    }
+    attachImageFallback(
+      imageEl,
+      rawImage ? imageUrlCandidates(rawImage, REDEEM_PRIZE_METADATA_URI) : [],
+      ARCADE_ART
+    );
   }
 
   async function updateRedeemEligibility() {
@@ -1079,12 +1087,8 @@
       for (let i = 0; i < count.toNumber(); i++) {
         const tokenId = await contract.prizeIdAt(i);
         const p = await contract.getPrize(tokenId);
-        // Prefer the per-prize URI returned by getPrize, and verify the public uri() getter too.
-        let metadataURI = p.metadataURI;
-        try {
-          const publicURI = await contract.uri(tokenId);
-          if (publicURI) metadataURI = publicURI;
-        } catch (_) {}
+        // getPrize returns the configured metadata URI; avoid a second URI RPC call per token.
+        const metadataURI = p.metadataURI;
         const metadata = await readMetadata(metadataURI);
         let balance = ethers.BigNumber.from(0);
         if (walletAddress) {
@@ -1202,10 +1206,9 @@
   function setStageArt(src, alt, active = false) {
     const art = $("arcade-stage-art");
     if (!art) return;
-    if (art.src !== src) art.src = src;
     art.alt = alt;
     art.classList.toggle("stage-active", active);
-    art.style.display = "block";
+    attachImageFallback(art, gatewayCandidates(src), "");
   }
 
   function hideRewardSlot() {
@@ -1310,6 +1313,7 @@
     }
 
     setBusy(true);
+    lastMintedTokenId = null;
     try {
       const info = await contract.mintInfo();
       if (info.isPaused) throw new Error("Minting is paused.");
@@ -1352,9 +1356,19 @@
 
       lastMintedTokenId = winningId;
       stopSpin();
-      await refreshArcade();
+      // A confirmed mint stays successful even if a public RPC/gateway is rate-limited
+      // during the post-mint inventory refresh. Try refreshing, but never hide the event result.
+      try { await refreshArcade(); }
+      catch (refreshError) {
+        console.warn("Mint confirmed; post-mint inventory refresh will retry later:", refreshError);
+        setStatus("Mint confirmed on-chain. Inventory refresh was temporarily unavailable; the prize reveal is still valid.", "success");
+      }
 
-      const winner = prizeCache.find(p => p.tokenId === winningId);
+      let winner = prizeCache.find(p => p.tokenId === winningId);
+      if (!winner) {
+        const eventPrize = { tokenId: winningId, name: "Prize #" + winningId, description: "Mint confirmed on-chain. Metadata is loading or temporarily unavailable.", image: [] };
+        winner = eventPrize;
+      }
       $("reel").textContent = (winner ? winner.name : "PRIZE") + "  #" + winningId;
       $("reel-subtitle").textContent = "Confirmed on-chain · mint #" + mintNumber;
       $("result-title").textContent = "YOU WON: " + (winner ? winner.name : "Prize #" + winningId);
@@ -1383,11 +1397,17 @@
       statusEl.appendChild(link);
     } catch (e) {
       stopSpin();
-      hideRewardSlot();
-      setStageArt(ARCADE_ART, "Funfart Arcade idle artwork", false);
-      $("reel").textContent = "MINT NOT COMPLETED";
-      $("reel-subtitle").textContent = "No prize reveal unless the contract confirms a mint.";
-      setStatus(errorMessage(e), "error");
+      // If PrizeMinted was already confirmed, do not present the transaction as failed.
+      if (lastMintedTokenId !== null) {
+        setStatus("Mint was confirmed on-chain (token #" + lastMintedTokenId + "). Some display data could not be refreshed: " + errorMessage(e), "success");
+        setStageArt(ARCADE_ART, "Funfart Arcade idle artwork", false);
+      } else {
+        hideRewardSlot();
+        setStageArt(ARCADE_ART, "Funfart Arcade idle artwork", false);
+        $("reel").textContent = "MINT NOT COMPLETED";
+        $("reel-subtitle").textContent = "No prize reveal unless the contract confirms a mint.";
+        setStatus(errorMessage(e), "error");
+      }
     } finally {
       setBusy(false);
       try { await refreshArcade(); } catch (_) {}
@@ -1501,6 +1521,14 @@
     }
   });
   $("wallet-inventory").innerHTML = '<p class="small">Connect a wallet to view owned prizes.</p>';
+
+  // Resolve the fixed artwork through alternate gateways too; direct HTML src values
+  // otherwise remain stuck on the custom gateway when it returns HTTP 403.
+  window.addEventListener("load", () => {
+    attachImageFallback($("start-bg"), gatewayCandidates($("start-bg").getAttribute("src")), "");
+    attachImageFallback($("redeem-prize-image"), gatewayCandidates($("redeem-prize-image").getAttribute("src")), ARCADE_ART);
+    setStageArt(ARCADE_ART, "Funfart Arcade prize generator idle artwork", false);
+  });
 
   // Restore connection status if the wallet is already authorized.
   window.addEventListener("load", async () => {
