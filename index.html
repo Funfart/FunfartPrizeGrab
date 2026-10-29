@@ -1,0 +1,1551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#101326" />
+  <title>Funfart Arcade — Prize RNG</title>
+
+  <!-- ethers v5 is used to match this single-file frontend's contract integration. -->
+  <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+
+  <style>
+    :root {
+      --bg: #101326;
+      --panel: rgba(20, 24, 48, .94);
+      --panel2: #1b2140;
+      --text: #f7f8ff;
+      --muted: #b8bfdc;
+      --accent: #8b5cf6;
+      --accent2: #22d3ee;
+      --good: #34d399;
+      --bad: #fb7185;
+      --border: rgba(255,255,255,.15);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; padding: 20px;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color: var(--text); text-align: center;
+      background:
+        radial-gradient(circle at 15% 10%, rgba(139,92,246,.28), transparent 32%),
+        radial-gradient(circle at 85% 75%, rgba(34,211,238,.18), transparent 30%),
+        #101326 url('MBTI_NFT_BG+-01.png') no-repeat center center fixed;
+      background-size: cover;
+    }
+    .container {
+      width: 100%; max-width: 760px; margin: 18px auto; padding: 24px;
+      border: 1px solid var(--border); border-radius: 20px;
+      background: var(--panel); box-shadow: 0 18px 60px rgba(0,0,0,.32);
+      backdrop-filter: blur(10px);
+    }
+    #start-screen { position: relative; cursor: pointer; padding: 0; overflow: hidden; }
+    #start-bg { display: block; width: 100%; max-height: 360px; object-fit: cover; }
+    .start-text {
+      position: absolute; inset: 0; display: grid; place-items: center;
+      font-size: clamp(1.8rem, 6vw, 3rem); font-weight: 900; letter-spacing: .05em;
+      color: white; text-shadow: 0 3px 14px #000; background: rgba(0,0,0,.16);
+    }
+    h1 { margin: 0 0 8px; font-size: clamp(1.7rem, 5vw, 2.4rem); }
+    h2 { margin: 10px 0; }
+    p { color: var(--muted); line-height: 1.5; }
+    .eyebrow { color: var(--accent2); font-weight: 800; text-transform: uppercase; letter-spacing: .16em; font-size: .75rem; }
+    .status {
+      min-height: 24px; margin: 14px 0; color: var(--muted);
+      overflow-wrap: anywhere; font-size: .95rem;
+    }
+    .status.error { color: var(--bad); }
+    .status.success { color: var(--good); }
+    .btn {
+      border: 0; border-radius: 12px; padding: 12px 18px; margin: 6px;
+      background: linear-gradient(135deg, var(--accent), #6d28d9);
+      color: #fff; font-weight: 800; font-size: .98rem; cursor: pointer;
+      box-shadow: 0 6px 20px rgba(109,40,217,.22); transition: transform .15s, opacity .15s;
+    }
+    .btn:hover:not(:disabled) { transform: translateY(-1px); }
+    .btn.secondary { background: var(--panel2); border: 1px solid var(--border); box-shadow: none; }
+    .btn:disabled { opacity: .45; cursor: not-allowed; }
+    .wallet-row { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; align-items: center; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--border);
+      border-radius: 999px; padding: 7px 12px; color: var(--muted); font-size: .83rem;
+      max-width: 100%; overflow-wrap: anywhere;
+    }
+    .led { width: 8px; height: 8px; border-radius: 50%; background: #64748b; display: inline-block; }
+    .led.online { background: var(--good); box-shadow: 0 0 10px rgba(52,211,153,.7); }
+    .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 18px 0; }
+    .stat { padding: 13px 8px; border-radius: 14px; background: rgba(255,255,255,.055); border: 1px solid var(--border); }
+    .stat strong { display: block; font-size: 1.05rem; overflow-wrap: anywhere; }
+    .stat span { display: block; margin-top: 4px; color: var(--muted); font-size: .78rem; }
+    .machine {
+      position: relative; min-height: 500px; margin: 18px 0; padding: 24px 16px 30px;
+      border-radius: 22px; border: 1px solid rgba(139,92,246,.65);
+      background: radial-gradient(circle at 50% 38%, rgba(139,92,246,.24), rgba(9,12,27,.94) 72%);
+      overflow: hidden; isolation: isolate;
+      box-shadow: inset 0 0 34px rgba(34,211,238,.06), 0 12px 35px rgba(0,0,0,.18);
+    }
+    .machine:before, .machine:after {
+      content: ""; position: absolute; left: -20%; width: 140%; height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent2), transparent); opacity: .45;
+    }
+    .machine:before { top: 22%; } .machine:after { bottom: 22%; }
+    .arcade-stage-art {
+      display: block; position: relative; z-index: 1;
+      width: min(520px, 88vw); height: clamp(280px, 43vw, 420px);
+      margin: 14px auto 0; object-fit: contain; border-radius: 16px;
+      filter: drop-shadow(0 0 22px rgba(34,211,238,.2));
+      transition: opacity .25s ease, filter .25s ease, transform .25s ease;
+    }
+    .arcade-stage-art.stage-active { animation: stagePulse .8s ease-in-out infinite alternate; }
+    @keyframes stagePulse { from { transform: scale(.985); filter: drop-shadow(0 0 12px rgba(139,92,246,.34)); } to { transform: scale(1.025); filter: drop-shadow(0 0 28px rgba(34,211,238,.5)); } }
+    .machine.reward-mode .arcade-stage-art { opacity: .16; filter: blur(2px) drop-shadow(0 0 20px rgba(34,211,238,.35)); transform: scale(.96); }
+    .reward-slot {
+      display: none; position: absolute; z-index: 4; left: 50%; top: 54%;
+      width: min(320px, 76%); min-height: 230px; padding: 13px;
+      transform: translate(-50%, -42%); align-items: center; justify-content: center;
+      flex-direction: column; gap: 8px; border-radius: 22px;
+      border: 2px solid rgba(34,211,238,.8);
+      background: linear-gradient(145deg, rgba(15,20,43,.96), rgba(34,18,70,.93));
+      box-shadow: 0 0 0 7px rgba(139,92,246,.13), 0 0 42px rgba(34,211,238,.25), inset 0 0 28px rgba(139,92,246,.18);
+    }
+    .reward-slot.visible { display: flex; }
+    .reward-slot::before { content: "NFT REWARD SLOT"; color: var(--accent2); font-size: .7rem; font-weight: 900; letter-spacing: .2em; }
+    .reward-slot::after { content: "REWARD SECURED"; color: var(--good); font-size: .7rem; font-weight: 900; letter-spacing: .16em; }
+    .prize-image {
+      display: block; width: min(240px, 62vw); height: min(240px, 62vw); max-width: 100%;
+      object-fit: contain; border-radius: 15px; border: 1px solid rgba(255,255,255,.22);
+      background: rgba(0,0,0,.25); margin: 0; opacity: 0;
+    }
+    .prize-image.reward-drop { animation: rewardDrop .78s cubic-bezier(.18,.82,.28,1.18) forwards; }
+    @keyframes rewardDrop {
+      0% { opacity: 0; transform: translateY(-150px) scale(.28) rotate(-12deg); filter: drop-shadow(0 0 0 rgba(34,211,238,0)); }
+      65% { opacity: 1; transform: translateY(8px) scale(1.06) rotate(3deg); filter: drop-shadow(0 0 24px rgba(34,211,238,.9)); }
+      82% { transform: translateY(-5px) scale(.98) rotate(-1deg); }
+      100% { opacity: 1; transform: translateY(0) scale(1) rotate(0); filter: drop-shadow(0 0 16px rgba(139,92,246,.65)); }
+    }
+    #confetti-canvas { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 9999; }
+    .slot-label { color: var(--accent2); font-size: .75rem; font-weight: 900; letter-spacing: .2em; }
+    #reel {
+      margin: 18px auto 8px; min-height: 54px; display: flex; justify-content: center;
+      align-items: center; gap: 10px; font-size: clamp(1.2rem, 5vw, 2rem); font-weight: 900;
+      overflow-wrap: anywhere;
+    }
+    #reel.spinning { animation: flicker .12s infinite alternate; }
+    @keyframes flicker { from { opacity: .58; transform: translateY(-1px); } to { opacity: 1; transform: translateY(1px); } }
+    .prize-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 10px; margin-top: 18px; text-align: left; }
+    .prize-card { border: 1px solid var(--border); border-radius: 14px; padding: 12px; background: rgba(255,255,255,.04); min-width: 0; }
+    .prize-card strong { display: block; margin-bottom: 5px; }
+    .prize-card small { color: var(--muted); line-height: 1.45; overflow-wrap: anywhere; }
+    .redeem-panel { margin: 24px 0; padding: 18px; text-align: left; border: 1px solid rgba(34,211,238,.45); border-radius: 18px; background: linear-gradient(145deg, rgba(34,211,238,.08), rgba(139,92,246,.12)); }
+    .redeem-panel h2, .redeem-panel p { text-align: center; }
+    .redeem-showcase { display: grid; grid-template-columns: minmax(130px, 220px) 1fr; gap: 18px; align-items: center; }
+    .redeem-showcase img { width: 100%; max-height: 240px; object-fit: contain; border-radius: 14px; background: rgba(0,0,0,.22); border: 1px solid var(--border); }
+    .redeem-form { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; margin-top: 14px; }
+    .redeem-form input { width: min(220px, 100%); padding: 12px; border-radius: 10px; border: 1px solid var(--border); background: #101326; color: var(--text); font: inherit; }
+    .redeem-note { text-align: center; min-height: 22px; }
+    /* Additive burn-to-ticket panel styles. */
+    .burn-panel { margin: 24px 0; padding: 18px; text-align: left; border: 1px solid rgba(52,211,153,.45); border-radius: 18px; background: linear-gradient(145deg, rgba(52,211,153,.08), rgba(139,92,246,.10)); }
+    .burn-panel h2, .burn-panel > p { text-align: center; }
+    .burn-form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(100px, 140px); gap: 10px; align-items: end; margin-top: 14px; }
+    .burn-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+    .burn-field label { color: var(--muted); font-size: .85rem; }
+    .burn-field select, .burn-field input { width: 100%; min-width: 0; padding: 12px; border-radius: 10px; border: 1px solid var(--border); background: #101326; color: var(--text); font: inherit; }
+    .burn-summary { margin-top: 12px; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: rgba(0,0,0,.16); text-align: center; }
+    .burn-summary strong { color: var(--good); font-size: 1.2rem; }
+    .burn-note { min-height: 22px; text-align: center; overflow-wrap: anywhere; }
+    /* Compact collection browser: preserves the original inventory grid IDs and rendering logic. */
+    .collection-launcher { margin: 18px 0 8px; display: flex; justify-content: center; }
+    .collection-modal { position: fixed; inset: 0; z-index: 10001; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(3,5,16,.82); backdrop-filter: blur(8px); }
+    .collection-modal.hidden { display: none !important; }
+    .collection-dialog { width: min(100%, 980px); max-height: min(88vh, 900px); overflow: hidden; display: flex; flex-direction: column; border: 1px solid rgba(139,92,246,.65); border-radius: 20px; background: #0b1020; box-shadow: 0 24px 80px rgba(0,0,0,.6); text-align: left; }
+    .collection-dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--border); }
+    .collection-dialog-header h2 { margin: 0; }
+    .collection-close { flex: 0 0 auto; min-width: 42px; padding: 8px 12px; font-size: 1.15rem; }
+    .collection-tabs { display: flex; gap: 8px; padding: 12px 16px 0; border-bottom: 1px solid var(--border); }
+    .collection-tab { border-radius: 12px 12px 0 0; border-bottom: 3px solid transparent; background: rgba(255,255,255,.04); color: var(--muted); }
+    .collection-tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent2); background: rgba(139,92,246,.16); }
+    .collection-tab-panel { overflow-y: auto; overscroll-behavior: contain; padding: 14px 18px 20px; }
+    .collection-tab-panel h3 { margin: 0 0 6px; }
+    .collection-tab-panel .prize-grid { margin-top: 14px; }
+    body.modal-open { overflow: hidden; }
+    @media (max-width: 520px) {
+      .collection-modal { padding: 8px; align-items: center; }
+      .collection-dialog { max-height: 92vh; border-radius: 15px; }
+      .collection-dialog-header { padding: 12px; }
+      .collection-tabs { padding: 10px 10px 0; }
+      .collection-tab { flex: 1; padding: 10px 8px; font-size: .88rem; }
+      .collection-tab-panel { padding: 12px; }
+      .collection-tab-panel .prize-grid { grid-template-columns: repeat(auto-fit, minmax(125px, 1fr)); }
+    }
+    @media (max-width: 520px) { .burn-form { grid-template-columns: 1fr; } }
+    @media (max-width: 520px) { .redeem-showcase { grid-template-columns: 1fr; } .redeem-showcase img { max-height: 220px; } }
+    .hidden { display: none !important; }
+    .small { font-size: .8rem; color: var(--muted); }
+    a { color: var(--accent2); }
+    @media (max-width: 520px) {
+      body { padding: 10px; }
+      .container { padding: 16px; border-radius: 16px; }
+      .stats { grid-template-columns: 1fr; }
+      .stat { display: flex; justify-content: space-between; align-items: center; text-align: left; }
+      .stat span { margin: 0 0 0 8px; }
+      .machine { min-height: 390px; padding: 20px 10px 24px; }
+      .arcade-stage-art { width: min(92vw, 500px); height: clamp(250px, 72vw, 350px); }
+      .reward-slot { top: 55%; width: min(300px, 82%); min-height: 205px; }
+      .prize-image { width: min(190px, 55vw); height: min(190px, 55vw); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .arcade-stage-art.stage-active, .prize-image.reward-drop { animation-duration: .01ms; animation-iteration-count: 1; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="confetti-canvas" aria-hidden="true"></canvas>
+  <!-- Preserves the supplied start artwork. Change the image URL if desired. -->
+  <div class="container" id="start-screen">
+    <img id="start-bg"
+      src="https://bafybeicfz5jvafr6x7lqyjxkz2xwn5y565vzmlgl46hbrqjlpdcehtmjla.ipfs.dweb.link/"
+      alt="Funfart Arcade start screen" />
+    <div class="start-text">TAP TO ENTER ARCADE</div>
+  </div>
+
+  <main class="container hidden" id="arcade">
+    <div class="eyebrow">On-chain prize terminal</div>
+    <h1>Funfart Arcade</h1>
+    <p>The reel is just the show. The smart contract chooses the prize.</p>
+
+    <div class="wallet-row">
+      <button class="btn" id="connect-injected">Connect Wallet</button>
+      <button class="btn secondary" id="connect-wc">WalletConnect</button>
+      <span class="pill"><i class="led" id="network-led"></i><span id="network-label">Not connected</span></span>
+      <span class="pill" id="wallet-label">Wallet: disconnected</span>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><strong id="price-value">—</strong><span>Mint price</span></div>
+      <div class="stat"><strong id="inventory-value">—</strong><span>Eligible prize types</span></div>
+      <div class="stat"><strong id="state-value">—</strong><span>Arcade status</span></div>
+    </div>
+    
+    <section class="redeem-panel" aria-labelledby="redeem-heading">
+      <div class="eyebrow" style="text-align:center">Ticket redemption</div>
+      <h2 id="redeem-heading">Redeem 10-points of $BESTY Bucks for Current Prize</h2>
+      <div class="redeem-showcase">
+        <img id="redeem-prize-image" alt="Current ticket redemption prize artwork" src="https://bafybeieyxdfrqkq3bmps6uecrqkejtpgpqooqmvyk4oukkn4zpizjlnepe.ipfs.dweb.link/" />
+        <div>
+          <strong id="redeem-prize-name">Current Prize · #11</strong>
+          <p id="redeem-prize-description" class="small">Loading prize metadata…</p>
+          <p class="small">Trade one $BESTY Buck (ticket token ID #10, worth 10 points) for one unit of current prize token #11. Your ticket is recycled to the configured reserve wallet in the same transaction.</p>
+        </div>
+      </div>
+      <div class="redeem-form">
+        <span class="pill">Ticket token ID: <strong>#10</strong> · Value: <strong>10 points</strong></span>
+        <button class="btn" id="redeem-btn" disabled>Redeem 1 $BESTY Buck</button>
+      </div>
+      <p id="owned-ticket-count" class="small redeem-note" aria-live="polite">Owned $BESTY Bucks: connect wallet to check balance.</p>
+      <p id="redeem-note" class="small redeem-note" role="status">Connect your wallet to check ticket balance and redemption eligibility.</p>
+    </section>
+    
+    <div class="machine" aria-live="polite">
+      <div class="slot-label">PRIZE GENERATOR</div>
+      <div id="reel">READY WHEN YOU ARE</div>
+      <div id="reel-subtitle" class="small">Connect a wallet and load prize inventory.</div>
+      <img id="arcade-stage-art" class="arcade-stage-art" src="https://bafybeieyxdfrqkq3bmps6uecrqkejtpgpqooqmvyk4oukkn4zpizjlnepe.ipfs.dweb.link/" alt="Funfart Arcade prize generator idle artwork" />
+      <div id="reward-slot" class="reward-slot" aria-live="polite" aria-label="Minted NFT reward slot">
+        <img id="prize-image" class="prize-image" alt="Minted prize artwork" />
+      </div>
+    </div>
+    <h2 id="result-title" class="hidden"></h2>
+    <p id="result-description" class="hidden"></p>
+
+    <div>
+      <button class="btn" id="refresh-btn">Refresh Prizes</button>
+      <button class="btn" id="mint-btn" disabled>Mint Random Prize</button>
+    </div>
+    <div id="status" class="status" role="status">Set your contract address in the configuration before use.</div>
+    <p class="small">
+      Network: Base Sepolia (chain ID 84532). This page never chooses the winning token ID.
+      The confirmed <code>PrizeMinted</code> event is authoritative.
+    </p>
+
+    <div class="collection-launcher">
+      <button class="btn" id="open-collection-modal" type="button" aria-haspopup="dialog" aria-controls="collection-modal">Browse Available Prizes &amp; Your NFTs</button>
+    </div>
+
+    <!-- Modal contains both inventory views. Existing grid IDs are retained for JS continuity. -->
+    <div id="collection-modal" class="collection-modal hidden" role="dialog" aria-modal="true" aria-labelledby="collection-modal-title" aria-hidden="true">
+      <div class="collection-dialog" role="document">
+        <div class="collection-dialog-header">
+          <div>
+            <div class="eyebrow">Collection browser</div>
+            <h2 id="collection-modal-title">Prizes &amp; Your NFTs</h2>
+          </div>
+          <button class="btn secondary collection-close" id="close-collection-modal" type="button" aria-label="Close collection browser">×</button>
+        </div>
+        <div class="collection-tabs" role="tablist" aria-label="Collection views">
+          <button class="btn collection-tab" id="tab-available-prizes" type="button" role="tab" aria-selected="true" aria-controls="panel-available-prizes" tabindex="0">Available Prizes</button>
+          <button class="btn collection-tab" id="tab-your-nfts" type="button" role="tab" aria-selected="false" aria-controls="panel-your-nfts" tabindex="-1">Your NFTs</button>
+        </div>
+        <section id="panel-available-prizes" class="collection-tab-panel" role="tabpanel" aria-labelledby="tab-available-prizes">
+          <h3>Available prizes</h3>
+          <p class="small">Inventory and metadata are read from the collection proxy. Balances show the connected wallet's holdings.</p>
+          <div id="prize-grid" class="prize-grid"></div>
+        </section>
+        <section id="panel-your-nfts" class="collection-tab-panel hidden" role="tabpanel" aria-labelledby="tab-your-nfts" hidden>
+          <h3>Your NFTs</h3>
+          <p class="small">ERC-1155 balances for the currently connected wallet.</p>
+          <div id="wallet-inventory" class="prize-grid"></div>
+        </section>
+      </div>
+    </div>
+
+    <!-- Additive burn-to-ticket UI. Requires the upgraded proxy to expose the burn methods. -->
+    <section class="burn-panel" aria-labelledby="burn-heading">
+      <div class="eyebrow" style="text-align:center">Prize recycling</div>
+      <h2 id="burn-heading">Burn a Prize for Tickets</h2>
+      <p class="small">Permanently burn a prize NFT from your wallet and receive the ticket reward configured for that prize by the contract owner. This action cannot be undone.</p>
+      <div class="burn-form">
+        <div class="burn-field">
+          <label for="burn-prize-select">Choose one of your prizes</label>
+          <select id="burn-prize-select" disabled>
+            <option value="">Connect wallet to load owned prizes</option>
+          </select>
+        </div>
+        <div class="burn-field">
+          <label for="burn-amount">Quantity to burn</label>
+          <input id="burn-amount" type="number" min="1" step="1" value="1" inputmode="numeric" disabled />
+        </div>
+      </div>
+      <div class="burn-summary" aria-live="polite">
+        <div class="small" id="burn-owned">Owned: —</div>
+        <div class="small" id="burn-rate">Ticket reward: checking contract…</div>
+        <div style="margin-top:6px">You will receive: <strong id="burn-total">— tickets</strong></div>
+      </div>
+      <div class="wallet-row" style="margin-top:12px">
+        <button class="btn" id="burn-btn" disabled>Burn Prize &amp; Receive Tickets</button>
+      </div>
+      <p id="burn-note" class="small burn-note" role="status">Connect your wallet to check burn eligibility.</p>
+    </section>
+
+    <p class="small">Contract: <a id="contract-link" href="https://sepolia.basescan.org/address/0xd373e3b1574013C29bBE9286C7968039a8bC0cA5" target="_blank" rel="noopener noreferrer">View proxy on Base Sepolia</a></p>
+  </main>
+
+<script>
+(() => {
+  "use strict";
+
+  // ==========================================================
+  // REQUIRED CONFIGURATION
+  // 1) Replace CONTRACT_ADDRESS with the deployed PROXY address.
+  // 2) Create a WalletConnect/Reown project ID and paste it below
+  //    if you want QR/deep-link WalletConnect support.
+  // 3) This sample targets Base Sepolia. Change chain config only
+  //    after deploying and testing the correct contract on Base.
+  // ==========================================================
+  const CONTRACT_ADDRESS = "0xd373e3b1574013C29bBE9286C7968039a8bC0cA5";
+  const WALLETCONNECT_PROJECT_ID = "eb26b345632b5cdd09fd1dd2ad8f974e";
+
+  const CHAIN_ID = 84532;
+  const CHAIN_HEX = "0x14a34";
+  const CHAIN_NAME = "Base Sepolia";
+  const RPC_URL = "https://sepolia.base.org";
+  const EXPLORER_TX = "https://sepolia.basescan.org/tx/";
+
+  // Use general public IPFS gateways only; do not depend on the custom Pinata gateway.
+  // CID subdomain URLs are preferred for browser origin isolation.
+  const IPFS_GATEWAYS = [
+    "https://dweb.link/ipfs/",
+    "https://ipfs.io/ipfs/"
+  ];
+  const IPFS_SUBDOMAIN_GATEWAY = "https://dweb.link";
+  // Fixed showcase/redeem target requested for this ticket trade.
+  const REDEEM_PRIZE_TOKEN_ID = "11";
+  const REDEEM_TICKET_TOKEN_ID = "10";
+  const REDEEM_TICKET_AMOUNT = 1;
+  const REDEEM_TICKET_VALUE_REQUIRED = 10;
+  const REDEEM_POINTS_REQUIRED = 10;
+  const REDEEM_PRIZE_METADATA_URI = "ipfs://bafybeiblc7vvpbjelkmv4nkeuuo4gupzotj5ey6ajibss5tgomdm5tv4du/11.json";
+
+  // Arcade assets are addressed by CID and resolved through public IPFS gateways.
+  const ARCADE_ART = "ipfs://bafybeieyxdfrqkq3bmps6uecrqkejtpgpqooqmvyk4oukkn4zpizjlnepe";
+  const ARCADE_PENDING_GIF = "ipfs://bafybeifvweq3mhwdtmlgwhxycyrre5flwcqnsbmvfcxkc3c6culq3t6bhm";
+  const ARCADE_SELECT_GIF = "ipfs://bafybeigu622t77vxvqr6zjcedwld4aokw6hajezvap6c6wh23htqr7o3z4";
+
+  // ABI matches the FunfartArcadePrize contract generated in the previous step.
+  const CONTRACT_ABI = [
+    "function mint() external payable",
+    "function mintInfo() view returns (uint256 price, bool isPaused, uint256 availableWeightTotal, uint256 registeredPrizes)",
+    "function prizeCount() view returns (uint256)",
+    "function prizeIdAt(uint256 index) view returns (uint256)",
+    "function getPrize(uint256 tokenId) view returns (string metadataURI, uint256 maxSupply, uint256 minted, uint256 remaining, uint256 weight, bool active)",
+    "function uri(uint256 tokenId) view returns (string)",
+    "function balanceOf(address account, uint256 id) view returns (uint256)",
+    "function ticketTypes(uint256 tokenId) view returns (uint256 value, bool enabled, bool exists)",
+    "function prizeRedemptionCost(uint256 prizeTokenId) view returns (uint256)",
+    "function ticketReserve() view returns (address)",
+    "function redeem(uint256[] ticketIds, uint256[] amounts, uint256 prizeTokenId) external",
+    "function prizeBurnTicketId(uint256 prizeTokenId) view returns (uint256)",
+    "function prizeBurnTicketsPerUnit(uint256 prizeTokenId) view returns (uint256)",
+    "function burnPrizeForTickets(uint256 prizeTokenId, uint256 amount) external",
+    "function walletMintCount(address) view returns (uint256)",
+    "event PrizeMinted(address indexed recipient, uint256 indexed tokenId, uint256 indexed mintNumber, uint256 pricePaid)",
+    "event TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)",
+    "event TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] values)",
+    "event URI(string value, uint256 indexed id)"
+  ];
+
+  const $ = (id) => document.getElementById(id);
+  let provider = null;
+  let signer = null;
+  let contract = null;
+  let activeWalletProvider = null;
+  let isBusy = false;
+  let prizeCache = [];
+  // Session-level caches prevent repeated Pinata/IPFS fetches during routine contract refreshes.
+  const metadataCache = new Map();
+  const metadataInflight = new Map();
+  const metadataRetryAfter = new Map();
+  const failedImageUrls = new Set();
+  let lastMintedTokenId = null;
+  let spinTimer = null;
+  let refreshDebounceTimer = null;
+  let autoRefreshTimer = null;
+  let lastLoadedWallet = null;
+
+  const startScreen = $("start-screen");
+  const arcade = $("arcade");
+  const statusEl = $("status");
+  const mintButton = $("mint-btn");
+  const redeemButton = $("redeem-btn");
+  const burnButton = $("burn-btn");
+  const connectInjectedButton = $("connect-injected");
+  const connectWCButton = $("connect-wc");
+
+  function setStatus(message, kind = "") {
+    statusEl.textContent = message;
+    statusEl.className = "status" + (kind ? " " + kind : "");
+  }
+
+  function setBusy(busy) {
+    isBusy = busy;
+    mintButton.disabled = busy || !contract || $("state-value").textContent !== "Open" ||
+      !prizeCache.some(p => p.active && p.weight > 0 && p.remaining > 0);
+    if (redeemButton) redeemButton.disabled = busy || !contract;
+    if (burnButton) burnButton.disabled = busy || !contract || !signer;
+    connectInjectedButton.disabled = busy;
+    connectWCButton.disabled = busy;
+    $("refresh-btn").disabled = busy;
+  }
+
+  function shortAddress(address) {
+    return address ? address.slice(0, 6) + "…" + address.slice(-4) : "disconnected";
+  }
+
+  function assertConfigured() {
+    if (!window.ethers) throw new Error("ethers.js did not load. Check your connection or CDN access.");
+    if (!ethers.utils.isAddress(CONTRACT_ADDRESS)) {
+      throw new Error("Configure CONTRACT_ADDRESS with the deployed FunfartArcadePrize PROXY address.");
+    }
+    if (CONTRACT_ADDRESS.toLowerCase() === ethers.constants.AddressZero) {
+      throw new Error("CONTRACT_ADDRESS cannot be the zero address.");
+    }
+  }
+
+  async function ensureBaseSepolia(rawProvider) {
+    const chainIdHex = await rawProvider.request({ method: "eth_chainId" });
+    if (Number(chainIdHex) === CHAIN_ID) return;
+
+    try {
+      await rawProvider.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: CHAIN_HEX }]
+      });
+    } catch (switchError) {
+      if (switchError && switchError.code === 4902) {
+        await rawProvider.request({
+          method: "wallet_addEthereumChain",
+          params: [{
+            chainId: CHAIN_HEX,
+            chainName: CHAIN_NAME,
+            nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+            rpcUrls: [RPC_URL],
+            blockExplorerUrls: ["https://sepolia.basescan.org"]
+          }]
+        });
+      } else {
+        throw switchError;
+      }
+    }
+
+    const confirmed = await rawProvider.request({ method: "eth_chainId" });
+    if (Number(confirmed) !== CHAIN_ID) {
+      throw new Error("Please switch your wallet to Base Sepolia (chain ID 84532).");
+    }
+  }
+
+  async function attachWallet(rawProvider) {
+    assertConfigured();
+    await ensureBaseSepolia(rawProvider);
+
+    if (contract) {
+      try { contract.removeAllListeners(); } catch (_) {}
+    }
+    activeWalletProvider = rawProvider;
+    provider = new ethers.providers.Web3Provider(rawProvider, "any");
+    signer = provider.getSigner();
+    contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+
+    const address = await signer.getAddress();
+    lastLoadedWallet = address;
+    installContractListeners();
+    const code = await provider.getCode(CONTRACT_ADDRESS);
+    if (!code || code === "0x") throw new Error("No contract bytecode found at the configured proxy address on Base Sepolia. Check the network and proxy address.");
+    $("wallet-label").textContent = "Wallet: " + shortAddress(address);
+    $("network-label").textContent = CHAIN_NAME;
+    $("network-led").classList.add("online");
+
+    if (rawProvider.on) {
+      rawProvider.on("accountsChanged", async (accounts) => {
+        if (!accounts || !accounts.length) {
+          disconnectUI();
+          return;
+        }
+        try {
+          if (contract) {
+            try { contract.removeAllListeners(); } catch (_) {}
+          }
+          provider = new ethers.providers.Web3Provider(rawProvider, "any");
+          signer = provider.getSigner();
+          contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+          lastLoadedWallet = accounts[0];
+          installContractListeners();
+          $("wallet-label").textContent = "Wallet: " + shortAddress(accounts[0]);
+          await refreshArcade();
+        } catch (e) {
+          setStatus(errorMessage(e), "error");
+        }
+      });
+      rawProvider.on("chainChanged", () => window.location.reload());
+    }
+
+    await refreshArcade();
+    setStatus("Wallet connected. Prize inventory loaded from the contract.", "success");
+  }
+
+  async function connectInjected() {
+    try {
+      assertConfigured();
+      if (!window.ethereum) {
+        throw new Error("No browser wallet detected. Install MetaMask or use WalletConnect.");
+      }
+      await window.ethereum.request({ method: "eth_requestAccounts" });
+      await attachWallet(window.ethereum);
+    } catch (e) {
+      setStatus(errorMessage(e), "error");
+    }
+  }
+
+  async function connectWalletConnect() {
+    try {
+      assertConfigured();
+      if (!WALLETCONNECT_PROJECT_ID ||
+          WALLETCONNECT_PROJECT_ID === "eb26b345632b5cdd09fd1dd2ad8f974e") {
+        throw new Error("Add a WalletConnect/Reown project ID in WALLETCONNECT_PROJECT_ID first.");
+      }
+
+      setStatus("Opening WalletConnect…", "");
+      // WalletConnect Ethereum Provider v2 loaded as an ES module.
+      const module = await import("https://esm.sh/@walletconnect/ethereum-provider@2.17.0");
+      const EthereumProvider = module.default || module.EthereumProvider;
+      const wcProvider = await EthereumProvider.init({
+        projectId: WALLETCONNECT_PROJECT_ID,
+        chains: [CHAIN_ID],
+        optionalChains: [CHAIN_ID],
+        showQrModal: true,
+        rpcMap: { [CHAIN_ID]: RPC_URL },
+        methods: [
+          "eth_sendTransaction", "personal_sign", "eth_sign",
+          "eth_signTypedData", "eth_signTypedData_v4"
+        ],
+        events: ["chainChanged", "accountsChanged"],
+        metadata: {
+          name: "Funfart Arcade",
+          description: "On-chain ERC-1155 prize arcade",
+          url: window.location.origin,
+          icons: []
+        }
+      });
+      await wcProvider.connect();
+      await attachWallet(wcProvider);
+    } catch (e) {
+      setStatus(errorMessage(e), "error");
+    }
+  }
+
+  function disconnectUI() {
+    if (contract) {
+      try { contract.removeAllListeners(); } catch (_) {}
+    }
+    provider = null;
+    signer = null;
+    contract = null;
+    activeWalletProvider = null;
+    lastLoadedWallet = null;
+    prizeCache = prizeCache.map(p => ({ ...p, balance: ethers.BigNumber.from(0) }));
+    renderPrizeGrid();
+    renderWalletInventory();
+    $("wallet-label").textContent = "Wallet: disconnected";
+    $("network-label").textContent = "Not connected";
+    $("network-led").classList.remove("online");
+    mintButton.disabled = true;
+    setStatus("Wallet disconnected. Connect again to continue.");
+  }
+
+  function scheduleRefresh(reason = "Contract state changed") {
+    if (refreshDebounceTimer) window.clearTimeout(refreshDebounceTimer);
+    refreshDebounceTimer = window.setTimeout(async () => {
+      if (!contract) return;
+      try {
+        await refreshArcade();
+        setStatus(reason + ". Live contract data refreshed.", "success");
+      } catch (e) {
+        setStatus("Automatic refresh failed: " + errorMessage(e), "error");
+      }
+    }, 700);
+  }
+
+  function installContractListeners() {
+    if (!contract) return;
+    // Standard ERC-1155 transfer events catch mints, transfers, and burns.
+    contract.on("TransferSingle", () => scheduleRefresh("ERC-1155 transfer detected"));
+    contract.on("TransferBatch", () => scheduleRefresh("ERC-1155 batch transfer detected"));
+    // URI events are emitted by compliant implementations when metadata URIs change.
+    contract.on("URI", () => scheduleRefresh("Metadata URI event detected"));
+    if (autoRefreshTimer) window.clearInterval(autoRefreshTimer);
+    // Poll as a fallback for custom prize/URI update functions that emit non-standard events.
+    // Contract polling is a fallback only. Metadata is cached separately, so this
+    // refreshes chain state without re-downloading the same IPFS JSON each time.
+    autoRefreshTimer = window.setInterval(() => {
+      if (contract && !isBusy && !document.hidden) refreshArcade().catch(() => {});
+    }, 120000);
+  }
+
+  function extractIpfsPath(uri) {
+    if (!uri) return "";
+    const value = String(uri).trim();
+    if (/^ipfs:\/\//i.test(value)) return value.replace(/^ipfs:\/\//i, "").replace(/^ipfs\//i, "").replace(/^\/+/, "");
+    if (/^https?:/i.test(value)) {
+      try {
+        const parsed = new URL(value);
+        const marker = parsed.pathname.indexOf("/ipfs/");
+        if (marker >= 0) return parsed.pathname.slice(marker + 6).replace(/^\/+/, "") + parsed.search;
+      } catch (_) {}
+    }
+    return "";
+  }
+
+  function ipfsToHttp(uri) {
+    if (!uri) return "";
+    const value = String(uri).trim();
+    if (!value) return "";
+    const path = extractIpfsPath(value);
+    if (path) return gatewayCandidates(value)[0] || "";
+    if (/^ar:\/\//i.test(value)) return "https://arweave.net/" + value.slice(5);
+    return value;
+  }
+
+  function gatewayCandidates(raw) {
+    const path = extractIpfsPath(raw);
+    if (!path) {
+      const resolved = ipfsToHttp(raw);
+      return resolved ? [resolved] : [];
+    }
+    const parts = path.split("/").filter(Boolean);
+    const cid = parts.shift();
+    const remainder = parts.join("/");
+    const candidates = [];
+    // CIDv1 base32 identifiers (the collection's bafy... CIDs) support subdomain gateways.
+    if (cid && /^b[a-z2-7]+$/i.test(cid)) {
+      candidates.push(`https://${cid}.ipfs.dweb.link/${remainder}`.replace(/\/$/, remainder ? "" : "/"));
+    }
+    const fullPath = [cid, remainder].filter(Boolean).join("/");
+    for (const gateway of IPFS_GATEWAYS) candidates.push(gateway + fullPath);
+    return [...new Set(candidates)];
+  }
+
+  // Resolve relative image paths against the metadata document and produce
+  // gateway alternatives for both ipfs:// URIs and HTTP gateway URLs.
+  function imageUrlCandidates(rawImage, metadataURI) {
+    if (!rawImage) return [];
+    let raw = String(rawImage).trim();
+    if (!raw) return [];
+    if (!/^(https?:|ipfs:|ar:|data:|blob:)/i.test(raw)) {
+      if (metadataURI && /^ipfs:\/\//i.test(metadataURI)) {
+        const base = metadataURI.replace(/^ipfs:\/\//i, "").replace(/^ipfs\//i, "");
+        const slash = base.lastIndexOf("/");
+        raw = "ipfs://" + (slash >= 0 ? base.slice(0, slash + 1) : base + "/") + raw.replace(/^\.\//, "");
+      } else if (metadataURI && /^https?:/i.test(metadataURI)) {
+        try { raw = new URL(raw, metadataURI).href; } catch (_) {}
+      }
+    }
+    const candidates = gatewayCandidates(raw);
+    if (candidates.length) return candidates;
+    const resolved = ipfsToHttp(raw);
+    return resolved ? [resolved] : [];
+  }
+
+  function attachImageFallback(image, candidates, fallback = ARCADE_ART) {
+    let index = 0;
+    const all = [...(candidates || []), ...gatewayCandidates(fallback)];
+    const urls = [...new Set(all.filter(Boolean))].filter(url => !failedImageUrls.has(url));
+    image.onerror = () => {
+      if (image.src) {
+        try { failedImageUrls.add(new URL(image.src).href); } catch (_) {}
+      }
+      index += 1;
+      while (index < urls.length && failedImageUrls.has(urls[index])) index += 1;
+      if (index < urls.length) {
+        image.src = urls[index];
+        return;
+      }
+      image.onerror = null;
+      image.style.display = "none";
+    };
+    if (urls.length) {
+      image.style.display = "block";
+      image.src = urls[0];
+    } else {
+      image.onerror = null;
+      image.style.display = "none";
+    }
+  }
+
+  async function readMetadata(metadataURI, options = {}) {
+    if (!metadataURI) return {};
+    const key = String(metadataURI).trim();
+    if (!key) return {};
+    const now = Date.now();
+    if (metadataCache.has(key)) {
+      const cached = metadataCache.get(key);
+      if (!cached.__metadataError) return cached;
+      if (!options.force && now < (metadataRetryAfter.get(key) || 0)) return cached;
+      metadataCache.delete(key);
+    }
+    if (metadataInflight.has(key)) return metadataInflight.get(key);
+
+    const request = (async () => {
+      const urls = gatewayCandidates(key);
+      let lastError = null;
+      for (const url of [...new Set(urls)]) {
+        try {
+          const response = await fetch(url, { cache: "default" });
+          if (!response.ok) throw new Error("HTTP " + response.status + " from " + url);
+          const metadata = await response.json();
+          if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) throw new Error("Metadata response was not a JSON object from " + url);
+          metadataCache.set(key, metadata);
+          metadataRetryAfter.delete(key);
+          return metadata;
+        } catch (e) {
+          lastError = e;
+        }
+      }
+      const failed = { __metadataError: lastError ? lastError.message : "Metadata unavailable" };
+      // Avoid hammering gateways on each poll, but allow automatic retry after a minute.
+      metadataCache.set(key, failed);
+      metadataRetryAfter.set(key, Date.now() + 60000);
+      console.warn("Could not load prize metadata from configured IPFS gateways:", key, lastError);
+      return failed;
+    })();
+    metadataInflight.set(key, request);
+    try { return await request; }
+    finally { metadataInflight.delete(key); }
+  }
+
+  function formatEth(wei) {
+    return ethers.utils.formatEther(wei) + " ETH";
+  }
+
+  function safeText(value, fallback) {
+    return value === undefined || value === null || value === "" ? fallback : String(value);
+  }
+
+  let redeemShowcaseLoaded = false;
+  async function loadRedeemShowcaseMetadata() {
+    if (redeemShowcaseLoaded) return;
+    const imageEl = $("redeem-prize-image");
+    const nameEl = $("redeem-prize-name");
+    const descriptionEl = $("redeem-prize-description");
+    const metadata = await readMetadata(REDEEM_PRIZE_METADATA_URI);
+    nameEl.textContent = safeText(metadata.name, "Current Prize · #" + REDEEM_PRIZE_TOKEN_ID);
+    descriptionEl.textContent = safeText(metadata.description, metadata.__metadataError ? "Prize image/description metadata could not be loaded; redemption is still verified on-chain." : "Redeem 1 $BESTY Buck (10 points) for this prize.");
+    const rawImage = metadata.image || metadata.image_url || metadata.animation_url || "";
+    redeemShowcaseLoaded = true;
+    attachImageFallback(
+      imageEl,
+      rawImage ? imageUrlCandidates(rawImage, REDEEM_PRIZE_METADATA_URI) : [],
+      ARCADE_ART
+    );
+  }
+
+  async function updateRedeemEligibility() {
+    const note = $("redeem-note");
+    const ownedEl = $("owned-ticket-count");
+    redeemButton.disabled = true;
+    if (!contract || !signer) {
+      ownedEl.textContent = "Owned $BESTY Bucks (token #10): connect wallet to check balance.";
+      note.textContent = "Connect your wallet to check ticket balance and redemption eligibility.";
+      return;
+    }
+    try {
+      const walletAddress = await signer.getAddress();
+      const [ticket, redemptionCost, prize, balance, info] = await Promise.all([
+        contract.ticketTypes(REDEEM_TICKET_TOKEN_ID),
+        contract.prizeRedemptionCost(REDEEM_PRIZE_TOKEN_ID),
+        contract.getPrize(REDEEM_PRIZE_TOKEN_ID),
+        contract.balanceOf(walletAddress, REDEEM_TICKET_TOKEN_ID),
+        contract.mintInfo()
+      ]);
+      ownedEl.textContent = "Owned $BESTY Bucks (token #10): " + balance.toString() +
+        " · Each is worth 10 points · Required: 1 ticket";
+      if (info.isPaused) { note.textContent = "Redemptions are paused by the contract owner."; return; }
+      if (!ticket.exists || !ticket.enabled) { note.textContent = "Ticket token ID #10 is not configured as an enabled ticket type on-chain."; return; }
+      if (!ticket.value.eq(REDEEM_TICKET_VALUE_REQUIRED)) { note.textContent = "Ticket #10 is configured as " + ticket.value.toString() + " point(s) each on-chain; it must be worth 10 points."; return; }
+      if (!redemptionCost.eq(REDEEM_POINTS_REQUIRED)) { note.textContent = "Prize #11 is configured for " + redemptionCost.toString() + " points on-chain, not 10. The contract owner must set its redemption cost to 10."; return; }
+      if (!prize.active || prize.remaining.isZero()) { note.textContent = "Prize #11 is not active or has no remaining redeemable supply."; return; }
+      if (balance.lt(REDEEM_TICKET_AMOUNT)) { note.textContent = "You own " + balance.toString() + " $BESTY Buck(s); you need at least 1 ticket to redeem."; return; }
+      const reserve = await contract.ticketReserve();
+      if (reserve === ethers.constants.AddressZero) { note.textContent = "Ticket reserve is not configured by the contract owner yet."; return; }
+      if (reserve.toLowerCase() === walletAddress.toLowerCase()) { note.textContent = "The connected wallet is the ticket reserve; it cannot redeem its own tickets."; return; }
+      note.textContent = "Ready: 1 $BESTY Buck (#10, 10 points) for prize #11 (10 points).";
+      redeemButton.disabled = isBusy;
+    } catch (e) {
+      ownedEl.textContent = "Could not read $BESTY Buck balance for token #10.";
+      note.textContent = "Redemption checks failed: " + errorMessage(e);
+    }
+  }
+
+  async function redeemCurrentPrize() {
+    if (isBusy) return;
+    if (!contract || !signer) { setStatus("Connect your wallet before redeeming.", "error"); return; }
+    const tokenId = ethers.BigNumber.from(REDEEM_TICKET_TOKEN_ID);
+    setBusy(true);
+    try {
+      await updateRedeemEligibility();
+      // Re-check directly before asking the wallet to sign; the contract remains authoritative.
+      const [ticket, cost, reserve, walletAddress] = await Promise.all([
+        contract.ticketTypes(tokenId), contract.prizeRedemptionCost(REDEEM_PRIZE_TOKEN_ID), contract.ticketReserve(), signer.getAddress()
+      ]);
+      const balance = await contract.balanceOf(walletAddress, tokenId);
+      const prize = await contract.getPrize(REDEEM_PRIZE_TOKEN_ID);
+      const info = await contract.mintInfo();
+      if (info.isPaused) throw new Error("Redemptions are paused.");
+      if (!ticket.exists || !ticket.enabled || !ticket.value.eq(REDEEM_TICKET_VALUE_REQUIRED)) throw new Error("Ticket token ID #10 must be enabled and worth exactly 10 points.");
+      if (!cost.eq(REDEEM_POINTS_REQUIRED)) throw new Error("Prize #11 must be configured for exactly 10 redemption points.");
+      if (!prize.active || prize.remaining.isZero()) throw new Error("Prize #11 has no available redeemable supply.");
+      if (balance.lt(REDEEM_TICKET_AMOUNT)) throw new Error("You need 1 $BESTY Buck; current balance is " + balance.toString() + ".");
+      if (reserve === ethers.constants.AddressZero) throw new Error("Ticket reserve wallet has not been configured.");
+      if (reserve.toLowerCase() === walletAddress.toLowerCase()) throw new Error("The ticket reserve wallet cannot redeem its own tickets.");
+
+      hideRewardSlot();
+      setStageArt(ARCADE_PENDING_GIF, "Ticket redemption pending", true);
+      $("reel").classList.add("spinning");
+      $("reel").textContent = "REDEEMING CURRENT PRIZE";
+      $("reel-subtitle").textContent = "Redeeming 1 ticket worth 10 points and recycling it to the reserve in one atomic transaction…";
+      $("redeem-note").textContent = "Confirm the redemption transaction in your wallet.";
+      setStatus("Confirm ticket redemption in your wallet…");
+      const tx = await contract.redeem([tokenId], [REDEEM_TICKET_AMOUNT], REDEEM_PRIZE_TOKEN_ID);
+      $("reel-subtitle").textContent = "Transaction submitted · waiting for Base Sepolia confirmation…";
+      setStatus("Redemption submitted. Waiting for confirmation: " + tx.hash);
+      const receipt = await tx.wait(1);
+      if (!receipt || receipt.status !== 1) throw new Error("Redemption transaction failed or was reverted.");
+      $("reel").classList.remove("spinning");
+      await refreshArcade();
+      const winner = prizeCache.find(p => p.tokenId === REDEEM_PRIZE_TOKEN_ID);
+      const metadata = await readMetadata(REDEEM_PRIZE_METADATA_URI);
+      const reveal = {
+        name: safeText(metadata.name, winner ? winner.name : "Current Prize"),
+        description: safeText(metadata.description, winner ? winner.description : "Redeemed with 1 $BESTY Buck (10 points)."),
+        image: metadata.image || metadata.image_url
+          ? imageUrlCandidates(metadata.image || metadata.image_url, REDEEM_PRIZE_METADATA_URI)
+          : (winner && winner.image ? (Array.isArray(winner.image) ? winner.image : [winner.image]) : [])
+      };
+      $("reel").textContent = reveal.name + "  #" + REDEEM_PRIZE_TOKEN_ID;
+      $("reel-subtitle").textContent = "Redemption confirmed on-chain · 1 $BESTY Buck recycled to reserve.";
+      $("result-title").textContent = "REDEEMED: " + reveal.name;
+      $("result-title").classList.remove("hidden");
+      $("result-description").textContent = reveal.description;
+      $("result-description").classList.remove("hidden");
+      showRewardSlot(reveal);
+      setStageArt(ARCADE_ART, "Funfart Arcade idle artwork", false);
+      launchConfetti();
+      setStatus("Redemption confirmed! View transaction: " + tx.hash, "success");
+      const oldLink = document.getElementById("tx-link"); if (oldLink) oldLink.remove();
+      const link = document.createElement("a");
+      link.href = EXPLORER_TX + tx.hash; link.target = "_blank"; link.rel = "noopener noreferrer";
+      link.textContent = "View redemption on Base Sepolia Explorer"; link.style.display = "inline-block"; link.style.marginTop = "8px"; link.id = "tx-link";
+      statusEl.appendChild(document.createElement("br")); statusEl.appendChild(link);
+      $("redeem-note").textContent = "Success! 1 $BESTY Buck (token #10) was recycled and prize #11 was delivered to your wallet.";
+    } catch (e) {
+      $("reel").classList.remove("spinning");
+      setStageArt(ARCADE_ART, "Funfart Arcade idle artwork", false);
+      setStatus(errorMessage(e), "error");
+      $("redeem-note").textContent = "Redemption not completed. No tickets should be consumed unless the transaction confirms.";
+    } finally {
+      setBusy(false);
+      try { await refreshArcade(); } catch (_) {}
+      await updateRedeemEligibility();
+    }
+  }
+
+  function renderBurnOptions() {
+    const select = $("burn-prize-select");
+    const amountInput = $("burn-amount");
+    if (!select || !amountInput) return;
+    const previous = select.value;
+    const owned = prizeCache.filter(p => p.balance && p.balance.gt(0));
+    select.innerHTML = "";
+    if (!lastLoadedWallet || !contract) {
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = "Connect wallet to load owned prizes";
+      select.appendChild(option);
+      select.disabled = true;
+      amountInput.disabled = true;
+      if (burnButton) burnButton.disabled = true;
+      $("burn-owned").textContent = "Owned: —";
+      $("burn-rate").textContent = "Ticket reward: —";
+      $("burn-total").textContent = "— tickets";
+      $("burn-note").textContent = "Connect your wallet to check burn eligibility.";
+      return;
+    }
+    if (!owned.length) {
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = "No prizes owned in this collection";
+      select.appendChild(option);
+      select.disabled = true;
+      amountInput.disabled = true;
+      if (burnButton) burnButton.disabled = true;
+      $("burn-owned").textContent = "Owned: 0 eligible collection prizes";
+      $("burn-rate").textContent = "Ticket reward: unavailable";
+      $("burn-total").textContent = "— tickets";
+      $("burn-note").textContent = "Mint or receive a prize from this collection to use the burn feature.";
+      return;
+    }
+    for (const prize of owned) {
+      const option = document.createElement("option");
+      option.value = prize.tokenId;
+      option.textContent = prize.name + " · #" + prize.tokenId + " · owned " + prize.balance.toString();
+      select.appendChild(option);
+    }
+    select.disabled = false;
+    amountInput.disabled = false;
+    if (owned.some(p => p.tokenId === previous)) select.value = previous;
+    else select.value = owned[0].tokenId;
+    updateBurnEligibility().catch(e => {
+      if (burnButton) burnButton.disabled = true;
+      $("burn-note").textContent = "Could not check burn settings: " + errorMessage(e);
+    });
+  }
+
+  async function updateBurnEligibility() {
+    if (!burnButton) return;
+    burnButton.disabled = true;
+    const select = $("burn-prize-select");
+    const amountRaw = $("burn-amount").value.trim();
+    const tokenId = select && select.value;
+    if (!contract || !signer || !lastLoadedWallet || !tokenId) {
+      $("burn-note").textContent = "Connect your wallet and select an owned prize.";
+      return;
+    }
+    if (!/^\d+$/.test(amountRaw) || Number(amountRaw) < 1 || !Number.isSafeInteger(Number(amountRaw))) {
+      $("burn-note").textContent = "Enter a whole-number quantity of at least 1.";
+      $("burn-total").textContent = "— tickets";
+      return;
+    }
+    const amount = ethers.BigNumber.from(amountRaw);
+    const prize = prizeCache.find(p => p.tokenId === tokenId);
+    if (!prize || amount.gt(prize.balance)) {
+      $("burn-owned").textContent = "Owned: " + (prize ? prize.balance.toString() : "0");
+      $("burn-note").textContent = "You do not own enough of this prize for that quantity.";
+      $("burn-total").textContent = "— tickets";
+      return;
+    }
+    $("burn-owned").textContent = "Owned: " + prize.balance.toString() + " · Selected to burn: " + amount.toString();
+    try {
+      // These getters are added by the upgraded burn-to-ticket implementation.
+      const [ticketId, ticketsPerPrize, info] = await Promise.all([
+        contract.prizeBurnTicketId(tokenId),
+        contract.prizeBurnTicketsPerUnit(tokenId),
+        contract.mintInfo()
+      ]);
+      if (ticketsPerPrize.isZero()) {
+        $("burn-rate").textContent = "Ticket reward: not configured for this prize";
+        $("burn-total").textContent = "0 tickets";
+        $("burn-note").textContent = "This prize is not configured for burn rewards. Choose another prize or ask the collection owner to configure a reward.";
+        return;
+      }
+      if (tokenId === ticketId.toString()) {
+        $("burn-note").textContent = "This prize cannot be burned for itself as a ticket reward.";
+        return;
+      }
+      const ticketType = await contract.ticketTypes(ticketId);
+      if (!ticketType.exists || !ticketType.enabled) {
+        $("burn-rate").textContent = "Ticket reward: ticket type #" + ticketId.toString() + " is disabled";
+        $("burn-note").textContent = "The configured reward ticket is not enabled. Please contact the collection owner.";
+        return;
+      }
+      const total = amount.mul(ticketsPerPrize);
+      $("burn-rate").textContent = "Reward rate: " + ticketsPerPrize.toString() + " ticket(s) per prize · ticket ID #" + ticketId.toString();
+      $("burn-total").textContent = total.toString() + (total.eq(1) ? " ticket" : " tickets");
+      if (info.isPaused) {
+        $("burn-note").textContent = "The contract is paused. Burning is unavailable until it is unpaused.";
+        return;
+      }
+      $("burn-note").textContent = "Ready. Review the amount and confirm the burn in your wallet. Burned prizes cannot be recovered.";
+      burnButton.disabled = isBusy;
+    } catch (e) {
+      $("burn-rate").textContent = "Ticket reward: unavailable";
+      $("burn-total").textContent = "— tickets";
+      $("burn-note").textContent = "Burn functions are unavailable on the configured contract. Confirm the burn-enabled implementation has been upgraded behind this proxy. Details: " + errorMessage(e);
+    }
+  }
+
+  async function burnPrizeForTicketsFromUI() {
+    if (isBusy) return;
+    if (!contract || !signer) {
+      setStatus("Connect your wallet before burning a prize.", "error");
+      return;
+    }
+    const tokenId = $("burn-prize-select").value;
+    const amountRaw = $("burn-amount").value.trim();
+    if (!tokenId || !/^\d+$/.test(amountRaw) || Number(amountRaw) < 1 || !Number.isSafeInteger(Number(amountRaw))) {
+      $("burn-note").textContent = "Choose a prize and enter a whole-number quantity of at least 1.";
+      return;
+    }
+    const amount = ethers.BigNumber.from(amountRaw);
+    setBusy(true);
+    try {
+      // Re-check balances, pause state, and the reward rate immediately before submitting.
+      const walletAddress = await signer.getAddress();
+      const [balance, ticketId, ticketsPerPrize, info] = await Promise.all([
+        contract.balanceOf(walletAddress, tokenId),
+        contract.prizeBurnTicketId(tokenId),
+        contract.prizeBurnTicketsPerUnit(tokenId),
+        contract.mintInfo()
+      ]);
+      if (info.isPaused) throw new Error("The contract is paused; burning is unavailable.");
+      if (amount.gt(balance)) throw new Error("Insufficient prize balance. You currently own " + balance.toString() + ".");
+      if (ticketsPerPrize.isZero()) throw new Error("Burn reward is not configured for this prize.");
+      if (tokenId === ticketId.toString()) throw new Error("A prize cannot be configured to reward itself.");
+      const ticketType = await contract.ticketTypes(ticketId);
+      if (!ticketType.exists || !ticketType.enabled) throw new Error("The configured reward ticket type is not enabled.");
+      const total = amount.mul(ticketsPerPrize);
+      const prize = prizeCache.find(p => p.tokenId === tokenId);
+      const label = prize ? prize.name + " (#" + tokenId + ")" : "Prize #" + tokenId;
+      const confirmation = "You are about to permanently burn " + amount.toString() + " × " + label + ".\n\nYou will receive " + total.toString() + " ticket(s) of token ID #" + ticketId.toString() + ".\n\nThis action cannot be undone. Continue?";
+      if (!window.confirm(confirmation)) {
+        $("burn-note").textContent = "Burn cancelled. No transaction was submitted.";
+        return;
+      }
+      $("burn-note").textContent = "Confirm the burn transaction in your wallet…";
+      setStatus("Confirm the prize burn in your wallet…");
+      const tx = await contract.burnPrizeForTickets(tokenId, amount);
+      $("burn-note").textContent = "Transaction submitted. Waiting for Base Sepolia confirmation…";
+      setStatus("Prize burn submitted. Waiting for confirmation: " + tx.hash);
+      const receipt = await tx.wait(1);
+      if (!receipt || receipt.status !== 1) throw new Error("Burn transaction failed or was reverted.");
+      await refreshArcade();
+      $("burn-note").textContent = "Success! Burned " + amount.toString() + " prize(s) and received " + total.toString() + " ticket(s) (token ID #" + ticketId.toString() + ").";
+      setStatus("Prize burned and ticket reward confirmed on-chain. Transaction: " + tx.hash, "success");
+      const oldLink = document.getElementById("burn-tx-link");
+      if (oldLink) oldLink.remove();
+      const link = document.createElement("a");
+      link.href = EXPLORER_TX + tx.hash;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = "View burn transaction on Base Sepolia Explorer";
+      link.style.display = "inline-block";
+      link.style.marginTop = "8px";
+      link.id = "burn-tx-link";
+      const existingBreak = document.createElement("br");
+      statusEl.appendChild(existingBreak);
+      statusEl.appendChild(link);
+    } catch (e) {
+      $("burn-note").textContent = "Burn not completed: " + errorMessage(e) + ". A prize is only burned if the transaction confirms successfully.";
+      setStatus(errorMessage(e), "error");
+    } finally {
+      setBusy(false);
+      try { await refreshArcade(); } catch (_) {}
+    }
+  }
+
+  async function refreshArcade() {
+    if (!contract) {
+      setStatus("Connect a wallet to read live prize inventory.");
+      return;
+    }
+
+    try {
+      const info = await contract.mintInfo();
+      $("price-value").textContent = formatEth(info.price);
+      $("state-value").textContent = info.isPaused ? "Paused" : (info.availableWeightTotal.isZero() ? "Sold out" : "Open");
+
+      const count = await contract.prizeCount();
+      const newPrizes = [];
+      const walletAddress = signer ? await signer.getAddress() : null;
+      for (let i = 0; i < count.toNumber(); i++) {
+        const tokenId = await contract.prizeIdAt(i);
+        const p = await contract.getPrize(tokenId);
+        // getPrize returns the configured metadata URI; avoid a second URI RPC call per token.
+        const metadataURI = p.metadataURI;
+        const metadata = await readMetadata(metadataURI);
+        let balance = ethers.BigNumber.from(0);
+        if (walletAddress) {
+          try { balance = await contract.balanceOf(walletAddress, tokenId); }
+          catch (balanceError) { console.warn("balanceOf failed for token", tokenId.toString(), balanceError); }
+        }
+        newPrizes.push({
+          tokenId: tokenId.toString(),
+          metadataURI,
+          maxSupply: p.maxSupply,
+          minted: p.minted,
+          remaining: p.remaining,
+          weight: p.weight,
+          active: p.active,
+          balance,
+          metadataError: metadata.__metadataError || "",
+          name: safeText(metadata.name, "Prize #" + tokenId.toString()),
+          description: safeText(metadata.description, metadata.__metadataError ? "Metadata fetch failed; check the URI/gateway." : ""),
+          image: imageUrlCandidates(metadata.image || metadata.image_url || metadata.animation_url || "", metadataURI)
+        });
+      }
+
+      prizeCache = newPrizes;
+      $("inventory-value").textContent = newPrizes.filter(p => p.active && p.weight.gt(0) && p.remaining.gt(0)).length;
+      renderPrizeGrid();
+      renderWalletInventory();
+      renderBurnOptions();
+      mintButton.disabled = isBusy || info.isPaused || info.availableWeightTotal.isZero();
+      await loadRedeemShowcaseMetadata();
+      await updateRedeemEligibility();
+      if (info.isPaused) setStatus("Minting is paused by the contract owner.", "error");
+      else if (info.availableWeightTotal.isZero()) setStatus("No eligible prizes remain in inventory.", "error");
+    } catch (e) {
+      setStatus("Could not read the proxy contract. Verify Base Sepolia (84532), proxy address, implementation, and ABI. Details: " + errorMessage(e), "error");
+      throw e;
+    }
+  }
+
+  function renderPrizeGrid() {
+    const grid = $("prize-grid");
+    grid.innerHTML = "";
+    if (!prizeCache.length) {
+      grid.innerHTML = '<p class="small">No prizes have been registered yet.</p>';
+      return;
+    }
+
+    prizeCache.forEach((p) => {
+      const card = document.createElement("div");
+      card.className = "prize-card";
+      const title = document.createElement("strong");
+      title.textContent = p.name + " · #" + p.tokenId;
+      const details = document.createElement("small");
+      details.textContent =
+        "Remaining: " + p.remaining.toString() + " / " + p.maxSupply.toString() +
+        "\nMinted: " + p.minted.toString() +
+        "\nOwned by connected wallet: " + (p.balance ? p.balance.toString() : "0") +
+        "\nWeight: " + p.weight.toString() +
+        "\nStatus: " + (p.active ? "Active" : "Disabled") +
+        (p.metadataError ? "\nMetadata warning: " + p.metadataError : "");
+      details.style.whiteSpace = "pre-line";
+      card.append(title, details);
+      if (p.image) {
+        const image = document.createElement("img");
+        image.alt = p.name;
+        image.loading = "eager";
+        image.decoding = "async";
+        image.style.cssText = "display:block;width:100%;aspect-ratio:1;object-fit:contain;border-radius:8px;margin-bottom:8px;background:rgba(0,0,0,.2)";
+        attachImageFallback(image, Array.isArray(p.image) ? p.image : [p.image]);
+        card.prepend(image);
+      }
+      grid.appendChild(card);
+    });
+  }
+
+  function renderWalletInventory() {
+    const grid = $("wallet-inventory");
+    if (!grid) return;
+    grid.innerHTML = "";
+    const owned = prizeCache.filter(p => p.balance && p.balance.gt(0));
+    if (!lastLoadedWallet) {
+      grid.innerHTML = '<p class="small">Connect a wallet to view owned prizes.</p>';
+      return;
+    }
+    if (!owned.length) {
+      grid.innerHTML = '<p class="small">No tokens from this collection were found for the connected wallet.</p>';
+      return;
+    }
+    owned.forEach(p => {
+      const card = document.createElement("div");
+      card.className = "prize-card";
+      if (p.image) {
+        const image = document.createElement("img");
+        image.alt = p.name;
+        image.loading = "eager";
+        image.decoding = "async";
+        image.style.cssText = "display:block;width:100%;aspect-ratio:1;object-fit:contain;border-radius:8px;margin-bottom:8px;background:rgba(0,0,0,.2)";
+        attachImageFallback(image, Array.isArray(p.image) ? p.image : [p.image]);
+        card.appendChild(image);
+      }
+      const title = document.createElement("strong");
+      title.textContent = p.name + " · #" + p.tokenId;
+      const details = document.createElement("small");
+      details.textContent = "Owned: " + p.balance.toString() + "\nMetadata URI: " + p.metadataURI;
+      details.style.whiteSpace = "pre-line";
+      card.append(title, details);
+      grid.appendChild(card);
+    });
+  }
+
+  function eligiblePrizeLabels() {
+    const eligible = prizeCache.filter(p => p.active && p.weight.gt(0) && p.remaining.gt(0));
+    return eligible.length ? eligible : [{ tokenId: "?", name: "SCANNING INVENTORY" }];
+  }
+
+  function setStageArt(src, alt, active = false) {
+    const art = $("arcade-stage-art");
+    if (!art) return;
+    art.alt = alt;
+    art.classList.toggle("stage-active", active);
+    attachImageFallback(art, gatewayCandidates(src), "");
+  }
+
+  function hideRewardSlot() {
+    const slot = $("reward-slot");
+    const image = $("prize-image");
+    const machine = document.querySelector(".machine");
+    if (slot) slot.classList.remove("visible");
+    if (machine) machine.classList.remove("reward-mode");
+    if (image) {
+      image.classList.remove("reward-drop");
+      image.style.display = "none";
+    }
+  }
+
+  function showRewardSlot(winner) {
+    const slot = $("reward-slot");
+    const image = $("prize-image");
+    const machine = document.querySelector(".machine");
+    if (!slot || !image || !machine) return;
+    // A confirmed mint gets a reward reveal even if the wallet inventory UI has not refreshed yet.
+    const winnerImages = winner && winner.image ? (Array.isArray(winner.image) ? winner.image : [winner.image]) : [];
+    attachImageFallback(image, winnerImages, ARCADE_ART);
+    image.alt = winner ? (winner.name + " — minted NFT reward") : "Mint confirmed reward";
+    image.style.display = "block";
+    image.classList.remove("reward-drop");
+    machine.classList.add("reward-mode");
+    slot.classList.add("visible");
+    // Restart the drop-in animation on each successful mint.
+    void image.offsetWidth;
+    image.classList.add("reward-drop");
+  }
+
+  let confettiFrame = null;
+  function launchConfetti() {
+    const canvas = $("confetti-canvas");
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    if (confettiFrame) cancelAnimationFrame(confettiFrame);
+    const dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
+    canvas.width = Math.floor(window.innerWidth * dpr);
+    canvas.height = Math.floor(window.innerHeight * dpr);
+    canvas.style.width = window.innerWidth + "px";
+    canvas.style.height = window.innerHeight + "px";
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const colors = ["#8b5cf6", "#22d3ee", "#34d399", "#fbbf24", "#fb7185", "#ffffff"];
+    const pieces = Array.from({ length: 150 }, () => ({
+      x: Math.random() * window.innerWidth, y: -20 - Math.random() * window.innerHeight * .45,
+      size: 4 + Math.random() * 6, vx: (Math.random() - .5) * 4, vy: 2 + Math.random() * 5,
+      rotation: Math.random() * Math.PI, spin: (Math.random() - .5) * .2,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      shape: Math.random() > .5 ? "rect" : "circle"
+    }));
+    const start = performance.now();
+    function frame(now) {
+      ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+      const elapsed = now - start;
+      for (const piece of pieces) {
+        piece.x += piece.vx; piece.y += piece.vy; piece.rotation += piece.spin; piece.vy += .025;
+        ctx.save(); ctx.translate(piece.x, piece.y); ctx.rotate(piece.rotation); ctx.fillStyle = piece.color;
+        if (piece.shape === "circle") { ctx.beginPath(); ctx.arc(0, 0, piece.size / 2, 0, Math.PI * 2); ctx.fill(); }
+        else ctx.fillRect(-piece.size / 2, -piece.size / 2, piece.size, piece.size * .65);
+        ctx.restore();
+      }
+      if (elapsed < 3600) confettiFrame = requestAnimationFrame(frame);
+      else { ctx.clearRect(0, 0, window.innerWidth, window.innerHeight); confettiFrame = null; }
+    }
+    confettiFrame = requestAnimationFrame(frame);
+  }
+
+  function startSpin() {
+    hideRewardSlot();
+    setStageArt(ARCADE_PENDING_GIF, "Animated prize generator while waiting for wallet signature", true);
+    $("prize-image").style.display = "none";
+    $("result-title").classList.add("hidden");
+    $("result-description").classList.add("hidden");
+    $("reel").classList.add("spinning");
+    $("reel-subtitle").textContent = "Transaction pending — waiting for the contract's confirmed result.";
+    let index = 0;
+    const labels = eligiblePrizeLabels();
+    $("reel").textContent = labels[0].name;
+    spinTimer = window.setInterval(() => {
+      const currentLabels = eligiblePrizeLabels();
+      if (currentLabels.length) {
+        index = (index + 1) % currentLabels.length;
+        $("reel").textContent = currentLabels[index].name + "  #" + currentLabels[index].tokenId;
+      }
+    }, 100);
+  }
+
+  function stopSpin() {
+    if (spinTimer) window.clearInterval(spinTimer);
+    spinTimer = null;
+    $("reel").classList.remove("spinning");
+  }
+
+  async function mintRandomPrize() {
+    if (isBusy) return;
+    if (!contract || !signer) {
+      setStatus("Connect your wallet before minting.", "error");
+      return;
+    }
+
+    setBusy(true);
+    lastMintedTokenId = null;
+    try {
+      const info = await contract.mintInfo();
+      if (info.isPaused) throw new Error("Minting is paused.");
+      if (info.availableWeightTotal.isZero()) throw new Error("No eligible prizes remain.");
+      const price = info.price;
+
+      startSpin();
+      setStatus("Confirm the mint transaction in your wallet…");
+
+      // No token ID is passed. The contract selects the prize.
+      const tx = await contract.mint({ value: price });
+      setStageArt(ARCADE_SELECT_GIF, "Prize selection animation while the transaction confirms", true);
+      $("reel-subtitle").textContent = "Wallet signature received · confirming transaction on Base Sepolia…";
+      setStatus("Transaction submitted. Waiting for confirmation: " + tx.hash);
+
+      const receipt = await tx.wait(1);
+      if (!receipt || receipt.status !== 1) throw new Error("Mint transaction failed or was reverted.");
+
+      const iface = contract.interface;
+      const connectedAddress = (await signer.getAddress()).toLowerCase();
+      let winningId = null;
+      let mintNumber = null;
+
+      for (const log of receipt.logs) {
+        if (log.address.toLowerCase() !== CONTRACT_ADDRESS.toLowerCase()) continue;
+        try {
+          const parsed = iface.parseLog(log);
+          if (parsed && parsed.name === "PrizeMinted" &&
+              parsed.args.recipient.toLowerCase() === connectedAddress) {
+            winningId = parsed.args.tokenId.toString();
+            mintNumber = parsed.args.mintNumber.toString();
+            break;
+          }
+        } catch (_) { /* not an event from this ABI */ }
+      }
+
+      if (winningId === null) {
+        throw new Error("Transaction confirmed, but PrizeMinted was not found in the proxy logs.");
+      }
+
+      lastMintedTokenId = winningId;
+      stopSpin();
+      // A confirmed mint stays successful even if a public RPC/gateway is rate-limited
+      // during the post-mint inventory refresh. Try refreshing, but never hide the event result.
+      try { await refreshArcade(); }
+      catch (refreshError) {
+        console.warn("Mint confirmed; post-mint inventory refresh will retry later:", refreshError);
+        setStatus("Mint confirmed on-chain. Inventory refresh was temporarily unavailable; the prize reveal is still valid.", "success");
+      }
+
+      let winner = prizeCache.find(p => p.tokenId === winningId);
+      if (!winner) {
+        const eventPrize = { tokenId: winningId, name: "Prize #" + winningId, description: "Mint confirmed on-chain. Metadata is loading or temporarily unavailable.", image: [] };
+        winner = eventPrize;
+      }
+      $("reel").textContent = (winner ? winner.name : "PRIZE") + "  #" + winningId;
+      $("reel-subtitle").textContent = "Confirmed on-chain · mint #" + mintNumber;
+      $("result-title").textContent = "YOU WON: " + (winner ? winner.name : "Prize #" + winningId);
+      $("result-title").classList.remove("hidden");
+
+      showRewardSlot(winner);
+      if (winner && winner.description) {
+        $("result-description").textContent = winner.description;
+        $("result-description").classList.remove("hidden");
+      }
+      setStageArt(ARCADE_ART, "Funfart Arcade idle artwork", false);
+      launchConfetti();
+
+      setStatus("Mint confirmed! View transaction: " + tx.hash, "success");
+      const link = document.createElement("a");
+      link.href = EXPLORER_TX + tx.hash;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = "View on Base Sepolia Explorer";
+      link.style.display = "inline-block";
+      link.style.marginTop = "8px";
+      link.id = "tx-link";
+      const oldLink = document.getElementById("tx-link");
+      if (oldLink) oldLink.remove();
+      statusEl.appendChild(document.createElement("br"));
+      statusEl.appendChild(link);
+    } catch (e) {
+      stopSpin();
+      // If PrizeMinted was already confirmed, do not present the transaction as failed.
+      if (lastMintedTokenId !== null) {
+        setStatus("Mint was confirmed on-chain (token #" + lastMintedTokenId + "). Some display data could not be refreshed: " + errorMessage(e), "success");
+        setStageArt(ARCADE_ART, "Funfart Arcade idle artwork", false);
+      } else {
+        hideRewardSlot();
+        setStageArt(ARCADE_ART, "Funfart Arcade idle artwork", false);
+        $("reel").textContent = "MINT NOT COMPLETED";
+        $("reel-subtitle").textContent = "No prize reveal unless the contract confirms a mint.";
+        setStatus(errorMessage(e), "error");
+      }
+    } finally {
+      setBusy(false);
+      try { await refreshArcade(); } catch (_) {}
+    }
+  }
+
+  function errorMessage(error) {
+    if (!error) return "Unknown error.";
+    if (error.code === 4001 || (error.error && error.error.code === 4001)) {
+      return "Wallet request was rejected.";
+    }
+    if (error.reason) return error.reason;
+    if (error.data && error.data.message) return error.data.message;
+    if (error.error && error.error.message) return error.error.message;
+    if (error.message) return error.message.replace(/^Error:\s*/, "");
+    return String(error);
+  }
+
+  const collectionModal = $("collection-modal");
+  const openCollectionButton = $("open-collection-modal");
+  const closeCollectionButton = $("close-collection-modal");
+  const availableTab = $("tab-available-prizes");
+  const ownedTab = $("tab-your-nfts");
+  const availablePanel = $("panel-available-prizes");
+  const ownedPanel = $("panel-your-nfts");
+  let collectionModalReturnFocus = null;
+
+  function selectCollectionTab(which) {
+    const showOwned = which === "owned";
+    availableTab.setAttribute("aria-selected", String(!showOwned));
+    availableTab.tabIndex = showOwned ? -1 : 0;
+    ownedTab.setAttribute("aria-selected", String(showOwned));
+    ownedTab.tabIndex = showOwned ? 0 : -1;
+    availablePanel.classList.toggle("hidden", showOwned);
+    availablePanel.hidden = showOwned;
+    ownedPanel.classList.toggle("hidden", !showOwned);
+    ownedPanel.hidden = !showOwned;
+    (showOwned ? ownedTab : availableTab).focus();
+  }
+
+  function openCollectionModal() {
+    collectionModalReturnFocus = document.activeElement;
+    collectionModal.classList.remove("hidden");
+    collectionModal.setAttribute("aria-hidden", "false");
+    document.body.classList.add("modal-open");
+    selectCollectionTab("available");
+    closeCollectionButton.focus();
+  }
+
+  function closeCollectionModal() {
+    collectionModal.classList.add("hidden");
+    collectionModal.setAttribute("aria-hidden", "true");
+    document.body.classList.remove("modal-open");
+    if (collectionModalReturnFocus && typeof collectionModalReturnFocus.focus === "function") collectionModalReturnFocus.focus();
+  }
+
+  openCollectionButton.addEventListener("click", openCollectionModal);
+  closeCollectionButton.addEventListener("click", closeCollectionModal);
+  availableTab.addEventListener("click", () => selectCollectionTab("available"));
+  ownedTab.addEventListener("click", () => selectCollectionTab("owned"));
+  [availableTab, ownedTab].forEach((tab, index) => tab.addEventListener("keydown", event => {
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      event.preventDefault();
+      selectCollectionTab(index === 0 ? "owned" : "available");
+    }
+  }));
+  collectionModal.addEventListener("click", event => {
+    if (event.target === collectionModal) closeCollectionModal();
+  });
+  document.addEventListener("keydown", event => {
+    if (!collectionModal.classList.contains("hidden") && event.key === "Escape") closeCollectionModal();
+  });
+
+  startScreen.addEventListener("click", () => {
+    startScreen.classList.add("hidden");
+    arcade.classList.remove("hidden");
+  });
+  connectInjectedButton.addEventListener("click", connectInjected);
+  connectWCButton.addEventListener("click", connectWalletConnect);
+  $("refresh-btn").addEventListener("click", async () => {
+    if (!isBusy) {
+      hideRewardSlot();
+      setStageArt(ARCADE_ART, "Funfart Arcade idle artwork", false);
+      $("result-title").classList.add("hidden");
+      $("result-description").classList.add("hidden");
+      $("reel").textContent = "PRIZES REFRESHED";
+      $("reel-subtitle").textContent = "Ready for your next mint.";
+    }
+    try {
+      await refreshArcade();
+      setStatus("Prize inventory refreshed from the contract.", "success");
+    } catch (_) {}
+  });
+  mintButton.addEventListener("click", mintRandomPrize);
+  redeemButton.addEventListener("click", redeemCurrentPrize);
+  burnButton.addEventListener("click", burnPrizeForTicketsFromUI);
+  $("burn-prize-select").addEventListener("change", () => updateBurnEligibility().catch(e => {
+    burnButton.disabled = true;
+    $("burn-note").textContent = "Could not check burn settings: " + errorMessage(e);
+  }));
+  $("burn-amount").addEventListener("input", () => updateBurnEligibility().catch(e => {
+    burnButton.disabled = true;
+    $("burn-note").textContent = "Could not check burn settings: " + errorMessage(e);
+  }));
+  let lastVisibilityRefresh = 0;
+  document.addEventListener("visibilitychange", () => {
+    const now = Date.now();
+    if (!document.hidden && contract && now - lastVisibilityRefresh > 60000) {
+      lastVisibilityRefresh = now;
+      refreshArcade().catch(() => {});
+    }
+  });
+  $("wallet-inventory").innerHTML = '<p class="small">Connect a wallet to view owned prizes.</p>';
+
+  // Resolve the fixed artwork through alternate gateways too; direct HTML src values
+  // otherwise remain stuck on the custom gateway when it returns HTTP 403.
+  window.addEventListener("load", () => {
+    attachImageFallback($("start-bg"), gatewayCandidates($("start-bg").getAttribute("src")), "");
+    attachImageFallback($("redeem-prize-image"), gatewayCandidates($("redeem-prize-image").getAttribute("src")), ARCADE_ART);
+    setStageArt(ARCADE_ART, "Funfart Arcade prize generator idle artwork", false);
+  });
+
+  // Restore connection status if the wallet is already authorized.
+  window.addEventListener("load", async () => {
+    if (window.ethereum && window.ethereum.selectedAddress) {
+      try { await attachWallet(window.ethereum); } catch (_) {}
+    }
+  });
+})();
+</script>
+</body>
+</html>
