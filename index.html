@@ -153,6 +153,30 @@
     .burn-summary { margin-top: 12px; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: rgba(0,0,0,.16); text-align: center; }
     .burn-summary strong { color: var(--good); font-size: 1.2rem; }
     .burn-note { min-height: 22px; text-align: center; overflow-wrap: anywhere; }
+    /* Compact collection browser: preserves the original inventory grid IDs and rendering logic. */
+    .collection-launcher { margin: 18px 0 8px; display: flex; justify-content: center; }
+    .collection-modal { position: fixed; inset: 0; z-index: 10001; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(3,5,16,.82); backdrop-filter: blur(8px); }
+    .collection-modal.hidden { display: none !important; }
+    .collection-dialog { width: min(100%, 980px); max-height: min(88vh, 900px); overflow: hidden; display: flex; flex-direction: column; border: 1px solid rgba(139,92,246,.65); border-radius: 20px; background: #0b1020; box-shadow: 0 24px 80px rgba(0,0,0,.6); text-align: left; }
+    .collection-dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--border); }
+    .collection-dialog-header h2 { margin: 0; }
+    .collection-close { flex: 0 0 auto; min-width: 42px; padding: 8px 12px; font-size: 1.15rem; }
+    .collection-tabs { display: flex; gap: 8px; padding: 12px 16px 0; border-bottom: 1px solid var(--border); }
+    .collection-tab { border-radius: 12px 12px 0 0; border-bottom: 3px solid transparent; background: rgba(255,255,255,.04); color: var(--muted); }
+    .collection-tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent2); background: rgba(139,92,246,.16); }
+    .collection-tab-panel { overflow-y: auto; overscroll-behavior: contain; padding: 14px 18px 20px; }
+    .collection-tab-panel h3 { margin: 0 0 6px; }
+    .collection-tab-panel .prize-grid { margin-top: 14px; }
+    body.modal-open { overflow: hidden; }
+    @media (max-width: 520px) {
+      .collection-modal { padding: 8px; align-items: center; }
+      .collection-dialog { max-height: 92vh; border-radius: 15px; }
+      .collection-dialog-header { padding: 12px; }
+      .collection-tabs { padding: 10px 10px 0; }
+      .collection-tab { flex: 1; padding: 10px 8px; font-size: .88rem; }
+      .collection-tab-panel { padding: 12px; }
+      .collection-tab-panel .prize-grid { grid-template-columns: repeat(auto-fit, minmax(125px, 1fr)); }
+    }
     @media (max-width: 520px) { .burn-form { grid-template-columns: 1fr; } }
     @media (max-width: 520px) { .redeem-showcase { grid-template-columns: 1fr; } .redeem-showcase img { max-height: 220px; } }
     .hidden { display: none !important; }
@@ -243,13 +267,36 @@
       The confirmed <code>PrizeMinted</code> event is authoritative.
     </p>
 
-    <h2>Available prizes</h2>
-    <p class="small">Inventory and metadata are read from the collection proxy. Balances show the connected wallet's holdings.</p>
-    <div id="prize-grid" class="prize-grid"></div>
+    <div class="collection-launcher">
+      <button class="btn" id="open-collection-modal" type="button" aria-haspopup="dialog" aria-controls="collection-modal">Browse Available Prizes &amp; Your NFTs</button>
+    </div>
 
-    <h2>Your NFTs</h2>
-    <p class="small">ERC-1155 balances for the currently connected wallet.</p>
-    <div id="wallet-inventory" class="prize-grid"></div>
+    <!-- Modal contains both inventory views. Existing grid IDs are retained for JS continuity. -->
+    <div id="collection-modal" class="collection-modal hidden" role="dialog" aria-modal="true" aria-labelledby="collection-modal-title" aria-hidden="true">
+      <div class="collection-dialog" role="document">
+        <div class="collection-dialog-header">
+          <div>
+            <div class="eyebrow">Collection browser</div>
+            <h2 id="collection-modal-title">Prizes &amp; Your NFTs</h2>
+          </div>
+          <button class="btn secondary collection-close" id="close-collection-modal" type="button" aria-label="Close collection browser">×</button>
+        </div>
+        <div class="collection-tabs" role="tablist" aria-label="Collection views">
+          <button class="btn collection-tab" id="tab-available-prizes" type="button" role="tab" aria-selected="true" aria-controls="panel-available-prizes" tabindex="0">Available Prizes</button>
+          <button class="btn collection-tab" id="tab-your-nfts" type="button" role="tab" aria-selected="false" aria-controls="panel-your-nfts" tabindex="-1">Your NFTs</button>
+        </div>
+        <section id="panel-available-prizes" class="collection-tab-panel" role="tabpanel" aria-labelledby="tab-available-prizes">
+          <h3>Available prizes</h3>
+          <p class="small">Inventory and metadata are read from the collection proxy. Balances show the connected wallet's holdings.</p>
+          <div id="prize-grid" class="prize-grid"></div>
+        </section>
+        <section id="panel-your-nfts" class="collection-tab-panel hidden" role="tabpanel" aria-labelledby="tab-your-nfts" hidden>
+          <h3>Your NFTs</h3>
+          <p class="small">ERC-1155 balances for the currently connected wallet.</p>
+          <div id="wallet-inventory" class="prize-grid"></div>
+        </section>
+      </div>
+    </div>
 
     <!-- Additive burn-to-ticket UI. Requires the upgraded proxy to expose the burn methods. -->
     <section class="burn-panel" aria-labelledby="burn-heading">
@@ -294,7 +341,7 @@
   // 3) This sample targets Base Sepolia. Change chain config only
   //    after deploying and testing the correct contract on Base.
   // ==========================================================
-  const CONTRACT_ADDRESS = "0xd373e3b1574013C29bBE9286C7968039a8bC0cA5";
+  const CONTRACT_ADDRESS = "0x339F1947F6DF185Bd63C5B28A94D76dEc30537F6";
   const WALLETCONNECT_PROJECT_ID = "eb26b345632b5cdd09fd1dd2ad8f974e";
 
   const CHAIN_ID = 84532;
@@ -1266,6 +1313,61 @@
     if (error.message) return error.message.replace(/^Error:\s*/, "");
     return String(error);
   }
+
+  const collectionModal = $("collection-modal");
+  const openCollectionButton = $("open-collection-modal");
+  const closeCollectionButton = $("close-collection-modal");
+  const availableTab = $("tab-available-prizes");
+  const ownedTab = $("tab-your-nfts");
+  const availablePanel = $("panel-available-prizes");
+  const ownedPanel = $("panel-your-nfts");
+  let collectionModalReturnFocus = null;
+
+  function selectCollectionTab(which) {
+    const showOwned = which === "owned";
+    availableTab.setAttribute("aria-selected", String(!showOwned));
+    availableTab.tabIndex = showOwned ? -1 : 0;
+    ownedTab.setAttribute("aria-selected", String(showOwned));
+    ownedTab.tabIndex = showOwned ? 0 : -1;
+    availablePanel.classList.toggle("hidden", showOwned);
+    availablePanel.hidden = showOwned;
+    ownedPanel.classList.toggle("hidden", !showOwned);
+    ownedPanel.hidden = !showOwned;
+    (showOwned ? ownedTab : availableTab).focus();
+  }
+
+  function openCollectionModal() {
+    collectionModalReturnFocus = document.activeElement;
+    collectionModal.classList.remove("hidden");
+    collectionModal.setAttribute("aria-hidden", "false");
+    document.body.classList.add("modal-open");
+    selectCollectionTab("available");
+    closeCollectionButton.focus();
+  }
+
+  function closeCollectionModal() {
+    collectionModal.classList.add("hidden");
+    collectionModal.setAttribute("aria-hidden", "true");
+    document.body.classList.remove("modal-open");
+    if (collectionModalReturnFocus && typeof collectionModalReturnFocus.focus === "function") collectionModalReturnFocus.focus();
+  }
+
+  openCollectionButton.addEventListener("click", openCollectionModal);
+  closeCollectionButton.addEventListener("click", closeCollectionModal);
+  availableTab.addEventListener("click", () => selectCollectionTab("available"));
+  ownedTab.addEventListener("click", () => selectCollectionTab("owned"));
+  [availableTab, ownedTab].forEach((tab, index) => tab.addEventListener("keydown", event => {
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      event.preventDefault();
+      selectCollectionTab(index === 0 ? "owned" : "available");
+    }
+  }));
+  collectionModal.addEventListener("click", event => {
+    if (event.target === collectionModal) closeCollectionModal();
+  });
+  document.addEventListener("keydown", event => {
+    if (!collectionModal.classList.contains("hidden") && event.key === "Escape") closeCollectionModal();
+  });
 
   startScreen.addEventListener("click", () => {
     startScreen.classList.add("hidden");
