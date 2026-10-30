@@ -361,8 +361,8 @@
   // is reused for the lifetime of this page.
   const verifiedFetchReady = (async () => {
     const [verifiedModule, heliaModule, heliaHttpModule] = await Promise.all([
-      //import("https://esm.sh/@helia/verified-fetch@8.1.2?bundle")
-      import("https://esm.sh/@helia/verified-fetch@7.2.16?bundle"),
+      import("https://esm.sh/@helia/verified-fetch@8.1.2?bundle"),
+      //import("https://esm.sh/@helia/verified-fetch@7.2.16?bundle"),
       import("https://esm.sh/helia?bundle"),
       import("https://esm.sh/@helia/http?bundle")
     ]);
