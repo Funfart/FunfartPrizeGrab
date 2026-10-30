@@ -377,7 +377,7 @@
     const helia = await heliaHttpModule.withHTTP(
       await heliaModule.createHeliaLight(),
       {
-        delegatedRouters: ["https://delegated-ipfs.dev"],
+        delegatedRouters: [],//"https://delegated-ipfs.dev"
         recursiveGateways: ["https://trustless-gateway.link"]
       }
     );
