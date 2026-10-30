@@ -354,37 +354,57 @@
   // IPFS content is retrieved and CID-verified in the browser with Helia Verified Fetch.
   // This removes direct dependence on the account-limited Pinata gateway and avoids
   // treating unverified gateway JSON/images as trusted content.
-  const VERIFIED_FETCH_MODULE = "https://esm.sh/@helia/verified-fetch?bundle";
-  
-  const verifiedFetchReady = import(VERIFIED_FETCH_MODULE).then(mod => {
-    if (typeof mod.verifiedFetch !== "function") throw new Error("@helia/verified-fetch did not expose verifiedFetch().");
-    return mod.verifiedFetch;
-  });
+  // Use Helia's HTTP-only transport with trustless gateways. This retains CID
+  // verification while avoiding the default parallel Bitswap/gateway retrieval
+  // race implicated by the ReadableStream "Cannot cancel a locked stream" error.
+  // These imports are loaded once and the resulting Helia/verified-fetch instance
+  // is reused for the lifetime of this page.
+  const verifiedFetchReady = (async () => {
+    const [verifiedModule, heliaModule, heliaHttpModule] = await Promise.all([
+      import("https://esm.sh/@helia/verified-fetch@8.1.2?bundle"),
+      import("https://esm.sh/helia?bundle"),
+      import("https://esm.sh/@helia/http?bundle")
+    ]);
 
-// Prevent overlapping Helia stream operations.
-// Responses are fully consumed before the next verified retrieval begins.
-let verifiedFetchQueue = Promise.resolve();
+    if (typeof verifiedModule.createVerifiedFetch !== "function") {
+      throw new Error("@helia/verified-fetch did not expose createVerifiedFetch().");
+    }
+    if (typeof heliaModule.createHeliaLight !== "function" ||
+        typeof heliaHttpModule.withHTTP !== "function") {
+      throw new Error("Helia HTTP transport modules did not expose the expected APIs.");
+    }
 
-// Concurrent callers for the same CID share one retrieval.
-const verifiedFetchInflight = new Map();
+    const helia = await heliaHttpModule.withHTTP(
+      await heliaModule.createHeliaLight(),
+      {
+        delegatedRouters: ["https://delegated-ipfs.dev"],
+        recursiveGateways: ["https://trustless-gateway.link"]
+      }
+    );
 
-// Small bounded cache for previously retrieved IPFS content.
-const verifiedContentCache = new Map();
-const VERIFIED_CONTENT_CACHE_LIMIT = 16;
+    const fetchVerified = await verifiedModule.createVerifiedFetch(helia);
+    if (typeof fetchVerified !== "function") {
+      throw new Error("createVerifiedFetch() did not return a fetch function.");
+    }
+    return fetchVerified;
+  })();
 
-function cacheVerifiedContent(key, value) {
-  if (verifiedContentCache.has(key)) {
-    verifiedContentCache.delete(key);
+  // Serialize complete page-level requests and share duplicate CID/path requests.
+  // The HTTP-only Helia configuration above is the transport-level change; this
+  // queue remains useful for avoiding redundant concurrent work in the UI.
+  let verifiedFetchQueue = Promise.resolve();
+  const verifiedFetchInflight = new Map();
+  const verifiedContentCache = new Map();
+  const VERIFIED_CONTENT_CACHE_LIMIT = 16;
+
+  function cacheVerifiedContent(key, value) {
+    if (verifiedContentCache.has(key)) verifiedContentCache.delete(key);
+    verifiedContentCache.set(key, value);
+    while (verifiedContentCache.size > VERIFIED_CONTENT_CACHE_LIMIT) {
+      verifiedContentCache.delete(verifiedContentCache.keys().next().value);
+    }
   }
 
-  verifiedContentCache.set(key, value);
-
-  while (verifiedContentCache.size > VERIFIED_CONTENT_CACHE_LIMIT) {
-    const oldestKey = verifiedContentCache.keys().next().value;
-    verifiedContentCache.delete(oldestKey);
-  }
-}
-  
   const imageObjectUrls = new WeakMap();
   // Fixed showcase/redeem target requested for this ticket trade.
   const REDEEM_PRIZE_TOKEN_ID = "11";
@@ -731,101 +751,73 @@ function cacheVerifiedContent(key, value) {
     return gatewayCandidates(raw);
   }
 
+  async function fetchContent(uri) {
+    const value = String(uri || "").trim();
 
-  
-async function fetchContent(uri) {
-  const value = String(uri || "").trim();
+    if (/^ipfs:\/\//i.test(value) || /^\/ipfs\//i.test(value)) {
+      const key = toIpfsUri(value);
+      const cached = verifiedContentCache.get(key);
 
-  if (/^ipfs:\/\//i.test(value) || /^\/ipfs\//i.test(value)) {
-    const key = toIpfsUri(value);
-
-    // Return a fresh Response backed by cached bytes.
-    // This allows each caller to consume its own response body.
-    const cached = verifiedContentCache.get(key);
-
-    if (cached) {
-      // Refresh LRU position.
-      verifiedContentCache.delete(key);
-      verifiedContentCache.set(key, cached);
-
-      return new Response(cached.bytes.slice(), {
-        status: cached.status,
-        statusText: cached.statusText,
-        headers: cached.headers
-      });
-    }
-
-    // Reuse an existing request for the same CID/path.
-    if (verifiedFetchInflight.has(key)) {
-      const result = await verifiedFetchInflight.get(key);
-
-      return new Response(result.bytes.slice(), {
-        status: result.status,
-        statusText: result.statusText,
-        headers: result.headers
-      });
-    }
-
-    const request = verifiedFetchQueue.then(async () => {
-      const verifiedFetch = await verifiedFetchReady;
-
-      // Retrieve and consume the complete body while holding the queue.
-      const response = await verifiedFetch(key);
-
-      if (!response || typeof response.arrayBuffer !== "function") {
-        throw new Error("Helia returned an invalid verified-fetch response.");
+      if (cached) {
+        verifiedContentCache.delete(key);
+        verifiedContentCache.set(key, cached);
+        return new Response(cached.bytes.slice(), {
+          status: cached.status,
+          statusText: cached.statusText,
+          headers: cached.headers
+        });
       }
 
-      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (verifiedFetchInflight.has(key)) {
+        const result = await verifiedFetchInflight.get(key);
+        return new Response(result.bytes.slice(), {
+          status: result.status,
+          statusText: result.statusText,
+          headers: result.headers
+        });
+      }
 
-      const result = {
-        bytes,
-        status: response.status,
-        statusText: response.statusText,
-        headers: {
-          "Content-Type": response.headers.get("Content-Type") || "application/octet-stream"
+      const request = verifiedFetchQueue.then(async () => {
+        const verifiedFetch = await verifiedFetchReady;
+        const response = await verifiedFetch(key);
+        if (!response || typeof response.arrayBuffer !== "function") {
+          throw new Error("Helia returned an invalid verified-fetch response.");
         }
-      };
 
-      // Cache only successful responses.
-      if (response.ok) {
-        cacheVerifiedContent(key, result);
-      }
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        const result = {
+          bytes,
+          status: response.status,
+          statusText: response.statusText,
+          headers: {
+            "Content-Type": response.headers.get("Content-Type") || "application/octet-stream"
+          }
+        };
 
-      return result;
-    });
-
-    verifiedFetchInflight.set(key, request);
-
-    // Keep the queue operational even if a retrieval fails.
-    verifiedFetchQueue = request.then(
-      () => undefined,
-      () => undefined
-    );
-
-    try {
-      const result = await request;
-
-      return new Response(result.bytes.slice(), {
-        status: result.status,
-        statusText: result.statusText,
-        headers: result.headers
+        if (response.ok) cacheVerifiedContent(key, result);
+        return result;
       });
-    } finally {
-      if (verifiedFetchInflight.get(key) === request) {
-        verifiedFetchInflight.delete(key);
+
+      verifiedFetchInflight.set(key, request);
+      verifiedFetchQueue = request.then(() => undefined, () => undefined);
+
+      try {
+        const result = await request;
+        return new Response(result.bytes.slice(), {
+          status: result.status,
+          statusText: result.statusText,
+          headers: result.headers
+        });
+      } finally {
+        if (verifiedFetchInflight.get(key) === request) {
+          verifiedFetchInflight.delete(key);
+        }
       }
     }
+
+    if (/^ar:\/\//i.test(value)) return fetch(ipfsToHttp(value), { cache: "default" });
+    return fetch(value, { cache: "default" });
   }
-
-  if (/^ar:\/\//i.test(value)) {
-    return fetch(ipfsToHttp(value), { cache: "default" });
-  }
-
-  return fetch(value, { cache: "default" });
-}
-
-  
 
   async function attachImageFallback(image, candidates, fallback = ARCADE_ART) {
     const all = [...(candidates || []), ...gatewayCandidates(fallback)];
